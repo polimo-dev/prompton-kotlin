@@ -1,21 +1,21 @@
 package dev.polimo.prompton.examples
 
-import dev.polimo.prompton.GenerationMeta
 import dev.polimo.prompton.PromptMessage
 import dev.polimo.prompton.PromptOn
 import dev.polimo.prompton.PromptOnConfig
 import dev.polimo.prompton.PromptOnMode
-import dev.polimo.prompton.ProviderOutcome
+import dev.polimo.prompton.Result
+import dev.polimo.prompton.TrackMeta
 import dev.polimo.prompton.Usage
 import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * Resolve a use case, render its prompt, call a provider, log what happened.
+ * Read a use case, fill its prompt, call a provider, log what happened.
  *
- * Run it with `./gradlew :examples:run`. With `PTN_API_KEY` set it fetches the live snapshot and
+ * Run it with `./gradlew :examples:run`. With `PTN_API_KEY` set it fetches the live use case document and
  * sends the monitoring log; without one it runs offline on the committed
- * `examples/snapshot.production.json` bundle — which is the same thing your app does when PromptOn
+ * `examples/use-cases.production.json` bundle — which is the same thing your app does when PromptOn
  * is unreachable.
  */
 fun main() {
@@ -34,23 +34,22 @@ fun main() {
         if (config.mode == PromptOnMode.LIVE) prompton.refreshBlocking()
 
         // 1. Which model, params and prompt version this call should use.
-        val resolution = prompton.resolve("greeting")
-        println("use case      : ${resolution.useCase} (${resolution.kind.wire})")
-        println("model         : ${resolution.model} via ${resolution.provider}")
-        println("params        : ${resolution.effectiveParams}")
-        println("pin           : deployment ${resolution.deploymentRevision}, prompt '${resolution.prompt}'")
-        println("configuration : ${resolution.source.wire}")
+        val useCase = prompton.useCase("greeting")
+        println("use case      : ${useCase.key} (${useCase.kind.wire})")
+        println("model         : ${useCase.model} via ${useCase.provider}")
+        println("params        : ${useCase.params}")
+        println("pin           : deployment ${useCase.deploymentRevision}, prompt '${useCase.prompt}'")
+        println("configuration : ${useCase.source.wire}")
 
         // 2. This call's variables go into the pinned template.
         val variables = mapOf("name" to "Ada")
-        val messages = resolution.render(variables).messages.orEmpty()
+        val messages = useCase.messages(variables)
         println("messages      : $messages")
 
         // 3. Your provider, your key, your HTTP client. PromptOn is never in this path.
         val answer =
-            prompton.generateBlocking(
-                resolution,
-                GenerationMeta(
+            useCase.trackBlocking(
+                TrackMeta(
                     variables = variables,
                     inputMessages = messages,
                     endUserRef = "user-42",
@@ -58,13 +57,13 @@ fun main() {
                     context = mapOf("language" to "en"),
                 ),
             ) { call ->
-                val reply = fakeProvider(resolution.model.orEmpty(), messages)
-                call.succeeded(
-                    ProviderOutcome(
+                val reply = fakeProvider(useCase.model.orEmpty(), messages)
+                call.result(
+                    Result(
                         content = reply.content,
                         finishReason = reply.finishReason,
                         usage = Usage(inputTokens = reply.inputTokens, outputTokens = reply.outputTokens),
-                        modelUsed = resolution.model,
+                        modelUsed = useCase.model,
                     ),
                 )
                 reply.content
@@ -89,7 +88,7 @@ private fun fakeProvider(
     model: String,
     messages: List<PromptMessage>,
 ): FakeReply {
-    require(model.isNotBlank()) { "the snapshot pinned no model" }
+    require(model.isNotBlank()) { "the use case document pinned no model" }
     val name = messages.last().content.substringAfter("Say hello to ").removeSuffix(".")
     return FakeReply(
         content = "Hello, $name! Lovely to see you.",
@@ -100,6 +99,6 @@ private fun fakeProvider(
 }
 
 private fun bundlePath(): Path {
-    val candidates = listOf(Path.of("snapshot.production.json"), Path.of("examples/snapshot.production.json"))
+    val candidates = listOf(Path.of("use-cases.production.json"), Path.of("examples/use-cases.production.json"))
     return candidates.firstOrNull { Files.isRegularFile(it) } ?: candidates.first()
 }

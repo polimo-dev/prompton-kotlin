@@ -1,7 +1,7 @@
 package dev.polimo.prompton
 
-import dev.polimo.prompton.internal.GenerationsClient
 import dev.polimo.prompton.internal.LogBuffer
+import dev.polimo.prompton.internal.LogClient
 import dev.polimo.prompton.internal.Payload
 import dev.polimo.prompton.internal.PayloadOptions
 import dev.polimo.prompton.internal.PromptOnClock
@@ -22,11 +22,11 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.toJavaDuration
 
-/** What the snapshot store is currently serving. */
-public data class SnapshotInfo(
+/** What the use case document store is currently serving. */
+public data class UseCaseDocumentInfo(
     val etag: String?,
     val lastModified: String?,
-    val source: ResolutionSource?,
+    val source: UseCaseSource?,
     val project: String?,
     val environment: String?,
     val fetchedAt: Instant?,
@@ -54,19 +54,20 @@ public data class LogStats(
     val batchesSent: Long,
 )
 
-/** The answer `POST /api/v1/resolve` gives: the resolve algorithm run on the server. */
-public data class ServerResolution(
-    val useCase: String,
+/** The answer `POST /api/v1/use-cases/{key}/prompt` gives: the server-rendered use case prompt. */
+public data class ServerUseCasePrompt(
+    val key: String,
     val kind: UseCaseKind,
     val deploymentId: String?,
     val deploymentRevision: Int?,
     val prompt: String?,
-    val prompts: List<String>,
+    val promptNames: List<String>,
+    val source: UseCaseSource?,
     val model: String?,
     val modelId: String?,
     val provider: String?,
-    val effectiveParams: Map<String, Any?>,
-    val effectiveProviderOptions: Map<String, Any?>,
+    val params: Map<String, Any?>,
+    val providerOptions: Map<String, Any?>,
     val promptVersionId: String?,
     val promptVersionNumber: Int?,
     val messages: List<PromptMessage>?,
@@ -80,16 +81,16 @@ public data class ServerResolution(
  *
  * ```kotlin
  * val prompton = PromptOn()
- * val resolution = prompton.resolve("greeting")
- * val messages = resolution.render(mapOf("name" to "Ada")).messages!!
- * val answer = prompton.generate(resolution, GenerationMeta(inputMessages = messages)) { call ->
- *     val reply = myProvider.chat(resolution.model!!, messages, resolution.effectiveParams)
- *     call.succeeded(ProviderOutcome(content = reply.text, finishReason = reply.finishReason))
+ * val useCase = prompton.useCase("greeting")
+ * val messages = useCase.messages(mapOf("name" to "Ada"))
+ * val answer = useCase.track(TrackMeta(inputMessages = messages)) { log ->
+ *     val reply = myProvider.chat(useCase.model!!, messages, useCase.params)
+ *     log.result(Result(content = reply.text, finishReason = reply.finishReason))
  *     reply.text
  * }
  * ```
  *
- * One instance owns one snapshot store and one monitoring-log queue, and is safe to share across
+ * One instance owns one use case document store and one monitoring-log queue, and is safe to share across
  * threads. Close it on shutdown so the queue drains.
  */
 public class PromptOn internal constructor(
@@ -108,13 +109,13 @@ public class PromptOn internal constructor(
 
     private val snapshots = SnapshotManager(config, transport, clock)
 
-    private val generations = GenerationsClient(config, transport)
+    private val logs = LogClient(config, transport)
 
     private val buffer: LogBuffer? =
-        if (config.mode == PromptOnMode.TEST) null else LogBuffer(config, clock, generations::post)
+        if (config.mode == PromptOnMode.TEST) null else LogBuffer(config, clock, logs::post)
 
     private val captured: MutableList<JsonObject> = Collections.synchronizedList(mutableListOf())
-    private val resolveCache = ConcurrentHashMap<String, Pair<Instant, ServerResolution>>()
+    private val useCasePromptCache = ConcurrentHashMap<String, Pair<Instant, ServerUseCasePrompt>>()
     private val resolveNextAttempt = ConcurrentHashMap<String, Instant>()
     private val resolveFailures = ConcurrentHashMap<String, Int>()
 
@@ -137,43 +138,36 @@ public class PromptOn internal constructor(
     // Configuration
 
     /**
-     * Resolves [useCase] from the cached snapshot.
+     * Reads [key] from the cached use case document.
      *
      * Reads memory, and past the cache TTL starts a background revalidation that never blocks
      * this call. Nothing here talks to PromptOn on the request path.
      */
     @JvmOverloads
-    public fun resolve(
-        useCase: String,
+    public fun useCase(
+        key: String,
         prompt: String? = null,
-    ): Resolution {
+    ): UseCase {
         val entry = snapshots.entry()
-        return Resolver.resolve(entry.document, useCase, prompt, entry.source, entry.etag)
+        return Resolver.resolve(entry.document, key, prompt, entry.source, entry.etag).also { it.owner = this }
     }
-
-    /** Renders a resolution's pinned prompt with this call's variables. */
-    @JvmOverloads
-    public fun render(
-        resolution: Resolution,
-        variables: Map<String, Any?>? = null,
-    ): RenderedPrompt = resolution.render(variables)
 
     /** The prompt names the live deployment of [useCase] pins. */
     public fun promptNames(useCase: String): List<String> = snapshots.entry().document.promptNames(useCase)
 
-    /** The snapshot document currently in memory. */
-    public fun snapshot(): SnapshotDocument = snapshots.entry().document
+    /** The use case document currently in memory. */
+    public fun useCaseDocument(): UseCaseDocument = snapshots.entry().document
 
-    public fun snapshotInfo(): SnapshotInfo {
+    public fun useCaseDocumentInfo(): UseCaseDocumentInfo {
         val entry = snapshots.currentOrNull()
-        return SnapshotInfo(
+        return UseCaseDocumentInfo(
             etag = entry?.etag,
             lastModified = entry?.lastModified,
             source = entry?.source,
             project = entry?.document?.project,
             environment = entry?.document?.environment,
             fetchedAt = entry?.fetchedAt,
-            stale = entry == null || entry.source != ResolutionSource.REMOTE || entry.staleSince != null,
+            stale = entry == null || entry.source != UseCaseSource.REMOTE || entry.staleSince != null,
             ageSeconds =
                 entry?.let {
                     java.time.Duration
@@ -186,7 +180,7 @@ public class PromptOn internal constructor(
     }
 
     /**
-     * Fetches the snapshot once, now, and waits for it. Returns whether a document is in memory
+     * Fetches the use case document once, now, and waits for it. Returns whether a document is in memory
      * afterwards — a refresh that failed while the cached document keeps serving still returns true.
      *
      * While PromptOn is rate-limiting or a backoff is running this returns without calling the
@@ -202,69 +196,69 @@ public class PromptOn internal constructor(
         withContext(Dispatchers.IO) { snapshots.refreshNow(force) }
 
     /** Writes the current document to [path], for committing as a bundle. */
-    public fun exportSnapshot(path: Path) {
+    public fun exportUseCaseDocument(path: Path) {
         snapshots.export(path)
     }
 
-    /** Injects a snapshot document, for tests and for offline bootstrapping. */
+    /** Injects a use case document, for tests and for offline bootstrapping. */
     @JvmOverloads
-    public fun putSnapshot(
+    public fun putUseCaseDocument(
         json: String,
-        source: ResolutionSource = ResolutionSource.MANUAL,
+        source: UseCaseSource = UseCaseSource.MANUAL,
     ) {
-        snapshots.putDocument(SnapshotDocument.parse(json), source)
+        snapshots.putDocument(UseCaseDocument.parse(json), source)
     }
 
     // -------------------------------------------------------------------
-    // The /resolve client
+    // The server-rendered prompt client
 
     /**
-     * Resolves through `POST /resolve` instead of the snapshot: the simple path for a low-traffic
-     * call site, and a smoke test for a deployment.
+     * Reads through `POST /use-cases/{key}/prompt` instead of the use case document: the simple path
+     * for a low-traffic call site, and a smoke test for a deployment.
      *
      * The answer is cached for the same cache TTL per use case, prompt and environment, and the
      * template is rendered locally, so this is not a per-request round trip. When PromptOn
      * answers `429` or `5xx`, or cannot be reached, the cached answer keeps serving.
      */
     @JvmOverloads
-    public fun resolveRemoteBlocking(
+    public fun useCaseRemoteBlocking(
         useCase: String,
         prompt: String? = null,
         environment: String? = null,
-    ): Resolution {
-        val server = serverResolution(useCase, prompt, environment)
-        return toResolution(server, environment ?: config.environment)
+    ): UseCase {
+        val server = cachedServerUseCasePrompt(useCase, prompt, environment)
+        return toUseCase(server, environment ?: config.environment)
     }
 
-    /** Suspending [resolveRemoteBlocking]. */
+    /** Suspending [useCaseRemoteBlocking]. */
     @JvmOverloads
-    public suspend fun resolveRemote(
+    public suspend fun useCaseRemote(
         useCase: String,
         prompt: String? = null,
         environment: String? = null,
-    ): Resolution = withContext(Dispatchers.IO) { resolveRemoteBlocking(useCase, prompt, environment) }
+    ): UseCase = withContext(Dispatchers.IO) { useCaseRemoteBlocking(useCase, prompt, environment) }
 
     /**
-     * Calls `POST /resolve` with [variables] and returns the server's answer verbatim, rendered
-     * server-side. Never cached — use it to smoke-test a deployment, not on a hot path.
+     * Calls `POST /use-cases/{key}/prompt` with [variables] and returns the server's answer
+     * verbatim, rendered server-side. Never cached.
      */
     @JvmOverloads
-    public fun resolveOnServerBlocking(
+    public fun promptOnServerBlocking(
         useCase: String,
         prompt: String? = null,
         environment: String? = null,
         variables: Map<String, Any?>? = null,
-    ): ServerResolution = postResolve(useCase, prompt, environment, variables)
+    ): ServerUseCasePrompt = postUseCasePrompt(useCase, prompt, environment, variables)
 
-    /** Suspending [resolveOnServerBlocking]. */
+    /** Suspending [promptOnServerBlocking]. */
     @JvmOverloads
-    public suspend fun resolveOnServer(
+    public suspend fun promptOnServer(
         useCase: String,
         prompt: String? = null,
         environment: String? = null,
         variables: Map<String, Any?>? = null,
-    ): ServerResolution =
-        withContext(Dispatchers.IO) { resolveOnServerBlocking(useCase, prompt, environment, variables) }
+    ): ServerUseCasePrompt =
+        withContext(Dispatchers.IO) { promptOnServerBlocking(useCase, prompt, environment, variables) }
 
     // -------------------------------------------------------------------
     // Monitoring logs
@@ -272,7 +266,7 @@ public class PromptOn internal constructor(
     /** Enqueues one monitoring log the app built itself and returns immediately. */
     @JvmOverloads
     public fun log(
-        record: GenerationRecord,
+        record: LogRecord,
         environment: String = config.environment,
     ) {
         enqueue(record.toJsonObject(), record.useCase, environment)
@@ -324,49 +318,51 @@ public class PromptOn internal constructor(
     /**
      * Times a provider call and logs it.
      *
-     * The block gets a [GenerationCall] to record what the provider returned. Whatever the block
+     * The block gets a [TrackCall] to record what the provider returned. Whatever the block
      * returns is returned unchanged, and whatever it throws is logged as an `app` error and
      * rethrown unchanged.
      */
     @JvmOverloads
-    public fun <T> generateBlocking(
-        resolution: Resolution,
-        meta: GenerationMeta = GenerationMeta(),
-        block: (GenerationCall) -> T,
+    internal fun <T> trackBlocking(
+        useCase: UseCase,
+        meta: TrackMeta = TrackMeta(),
+        block: (TrackCall) -> T,
     ): T {
-        val call = GenerationCall()
+        val call = TrackCall()
         val id = meta.id ?: UuidV7.generate()
         val startedAt = clock.now()
         val started = clock.nanoTime()
         try {
-            val result = block(call)
-            logGeneration(resolution, meta, call.outcome, call.error, id, startedAt, elapsedMillis(started))
-            return result
+            val returned = block(call)
+            val result = call.result ?: (returned as? Result)
+            logTrack(useCase, meta, result, call.error, id, startedAt, elapsedMillis(started))
+            return returned
         } catch (e: Throwable) {
-            val error = GenerationError(ErrorKind.APP, message = e.toString())
-            logGeneration(resolution, meta, call.outcome, error, id, startedAt, elapsedMillis(started))
+            val error = LogError(ErrorKind.APP, message = e.toString())
+            logTrack(useCase, meta, call.result, error, id, startedAt, elapsedMillis(started))
             throw e
         }
     }
 
-    /** Suspending [generateBlocking]. */
+    /** Suspending [trackBlocking]. */
     @JvmOverloads
-    public suspend fun <T> generate(
-        resolution: Resolution,
-        meta: GenerationMeta = GenerationMeta(),
-        block: suspend (GenerationCall) -> T,
+    internal suspend fun <T> track(
+        useCase: UseCase,
+        meta: TrackMeta = TrackMeta(),
+        block: suspend (TrackCall) -> T,
     ): T {
-        val call = GenerationCall()
+        val call = TrackCall()
         val id = meta.id ?: UuidV7.generate()
         val startedAt = clock.now()
         val started = clock.nanoTime()
         try {
-            val result = block(call)
-            logGeneration(resolution, meta, call.outcome, call.error, id, startedAt, elapsedMillis(started))
-            return result
+            val returned = block(call)
+            val result = call.result ?: (returned as? Result)
+            logTrack(useCase, meta, result, call.error, id, startedAt, elapsedMillis(started))
+            return returned
         } catch (e: Throwable) {
-            val error = GenerationError(ErrorKind.APP, message = e.toString())
-            logGeneration(resolution, meta, call.outcome, error, id, startedAt, elapsedMillis(started))
+            val error = LogError(ErrorKind.APP, message = e.toString())
+            logTrack(useCase, meta, call.result, error, id, startedAt, elapsedMillis(started))
             throw e
         }
     }
@@ -379,47 +375,47 @@ public class PromptOn internal constructor(
 
     private fun elapsedMillis(startedNanos: Long): Long = (clock.nanoTime() - startedNanos) / 1_000_000
 
-    internal fun logGeneration(
-        resolution: Resolution,
-        meta: GenerationMeta,
-        outcome: ProviderOutcome?,
-        error: GenerationError?,
+    internal fun logTrack(
+        useCase: UseCase,
+        meta: TrackMeta,
+        result: Result?,
+        error: LogError?,
         id: String,
         startedAt: Instant,
         latencyMs: Long,
     ) {
         val metadata = LinkedHashMap<String, Any?>(meta.metadata)
-        outcome?.isByok?.let { metadata["is_byok"] = it }
+        result?.isByok?.let { metadata["is_byok"] = it }
 
         val record =
-            GenerationRecord(
-                useCase = resolution.useCase,
-                model = resolution.model ?: "",
-                status = if (error != null) GenerationStatus.ERROR else GenerationStatus.OK,
+            LogRecord(
+                useCase = useCase.key,
+                model = useCase.model ?: "",
+                status = if (error != null) LogStatus.ERROR else LogStatus.OK,
                 startedAt = startedAt,
                 id = id,
-                kind = resolution.kind,
-                deploymentId = resolution.deploymentId,
-                deploymentRevision = resolution.deploymentRevision,
-                prompt = resolution.prompt,
-                promptVersionId = resolution.promptVersionId,
-                resolutionSource = resolution.source,
-                provider = resolution.provider,
-                modelUsed = outcome?.modelUsed,
-                upstreamProvider = outcome?.upstreamProvider,
-                params = Resolver.mergeShallow(resolution.effectiveParams, meta.params),
+                kind = useCase.kind,
+                deploymentId = useCase.deploymentId,
+                deploymentRevision = useCase.deploymentRevision,
+                prompt = useCase.prompt,
+                promptVersionId = useCase.promptVersionId,
+                source = useCase.source,
+                provider = useCase.provider,
+                modelUsed = result?.modelUsed,
+                upstreamProvider = result?.upstreamProvider,
+                params = Resolver.mergeShallow(useCase.params, meta.params),
                 input =
-                    GenerationInput(
+                    LogInput(
                         variables = meta.variables,
                         messages = meta.inputMessages,
                         text = meta.inputText,
                     ),
                 output =
-                    outcome?.let { GenerationOutput(content = it.content, toolCalls = it.toolCalls) },
-                finishReason = outcome?.finishReason,
-                stopKind = stopKindOf(outcome),
+                    result?.let { LogOutput(content = it.content, toolCalls = it.toolCalls) },
+                finishReason = result?.finishReason,
+                stopKind = stopKindOf(result),
                 error = error,
-                usage = outcome?.usage ?: Usage(),
+                usage = result?.usage ?: Usage(),
                 latencyMs = latencyMs,
                 traceId = meta.traceId,
                 sequence = meta.sequence,
@@ -430,16 +426,16 @@ public class PromptOn internal constructor(
 
         enqueue(
             record.toJsonObject(),
-            resolution.useCase,
-            resolution.environment.ifBlank { config.environment },
-            resolution.payloadPolicy,
+            useCase.key,
+            useCase.environment.ifBlank { config.environment },
+            useCase.payloadPolicy,
         )
     }
 
-    private fun stopKindOf(outcome: ProviderOutcome?): StopKind? {
-        if (outcome == null) return null
-        outcome.stopKind?.let { return StopKind.normalize(it.wire) }
-        return outcome.finishReason?.let { StopKind.normalize(it) }
+    private fun stopKindOf(result: Result?): StopKind? {
+        if (result == null) return null
+        result.stopKind?.let { return StopKind.normalize(it.wire) }
+        return result.finishReason?.let { StopKind.normalize(it) }
     }
 
     private fun enqueue(
@@ -506,22 +502,22 @@ public class PromptOn internal constructor(
     private fun headers(json: Boolean): Map<String, String> = config.wireHeaders(json)
 
     /**
-     * The cached `/resolve` answer, refreshed at most once per cache TTL and never while the server
-     * is asking for silence.
+     * The cached `/use-cases/{key}/prompt` answer, refreshed at most once per cache TTL and never
+     * while the server is asking for silence.
      *
      * A `429`, a `5xx` or an unreachable server keeps serving the cached answer *and* starts a
      * window — `Retry-After`, else exponential backoff x2 from the TTL up to five minutes — during
-     * which the SDK does not call `/resolve` again for this key. Without that, every caller past the
+     * which the SDK does not call the endpoint again for this key. Without that, every caller past the
      * TTL would issue another request at a control plane that is already rate-limiting.
      */
-    private fun serverResolution(
+    private fun cachedServerUseCasePrompt(
         useCase: String,
         prompt: String?,
         environment: String?,
-    ): ServerResolution {
+    ): ServerUseCasePrompt {
         val key = "${environment ?: config.environment}|$useCase|${prompt ?: Resolver.DEFAULT_PROMPT}"
         val now = clock.now()
-        val entry = resolveCache[key]
+        val entry = useCasePromptCache[key]
         if (entry != null &&
             java.time.Duration
                 .between(entry.first, now) < config.cacheTtl.toJavaDuration()
@@ -533,23 +529,23 @@ public class PromptOn internal constructor(
         if (blockedUntil != null && now.isBefore(blockedUntil)) {
             cached?.let { return it }
             throw PromptOnException(
-                "PromptOn answered /resolve with an error for '$useCase' and nothing is cached: " +
+                "PromptOn answered /use-cases/$useCase/prompt with an error and nothing is cached: " +
                     "not calling again before $blockedUntil",
             )
         }
 
         val response =
             try {
-                postResolveResponse(useCase, prompt, environment, null)
+                postUseCasePromptResponse(useCase, prompt, environment, null)
             } catch (e: Exception) {
-                pauseResolve(key, now, cached, null, "/resolve is unreachable (${e.message})")
+                pauseResolve(key, now, cached, null, "/use-cases/$useCase/prompt is unreachable (${e.message})")
                 cached?.let { return it }
                 throw e
             }
 
         if (response.status == 200) {
-            val answer = parseServerResolution(Ptn.parseObject(response.body))
-            resolveCache[key] = now to answer
+            val answer = parseServerUseCasePrompt(Ptn.parseObject(response.body))
+            useCasePromptCache[key] = now to answer
             resolveNextAttempt.remove(key)
             resolveFailures.remove(key)
             return answer
@@ -560,7 +556,7 @@ public class PromptOn internal constructor(
                 now,
                 cached,
                 SnapshotManager.retryAfterOf(response),
-                "/resolve answered ${response.status}",
+                "/use-cases/$useCase/prompt answered ${response.status}",
             )
             cached?.let { return it }
         }
@@ -568,46 +564,45 @@ public class PromptOn internal constructor(
     }
 
     /**
-     * Stops calling `/resolve` for this key until the window has passed, and keeps whatever was
+     * Stops calling `/use-cases/{key}/prompt` for this key until the window has passed, and keeps whatever was
      * cached alive for at least that long. Only `429`, `5xx` and transport failures land here — a
      * `4xx` is about the request, not about load, and repeating it is the caller's business.
      */
     private fun pauseResolve(
         key: String,
         now: Instant,
-        cached: ServerResolution?,
+        cached: ServerUseCasePrompt?,
         retryAfter: Duration?,
         reason: String,
     ) {
         val attempt = resolveFailures.merge(key, 1, Int::plus) ?: 1
         val delay = retryAfter ?: SnapshotManager.backoffFrom(config.cacheTtl, attempt)
-        if (cached != null) resolveCache[key] = now to cached
+        if (cached != null) useCasePromptCache[key] = now to cached
         resolveNextAttempt[key] = now.plusMillis(delay.inWholeMilliseconds)
-        PtnLog.throttled("resolve-degraded", 60_000) {
+        PtnLog.throttled("use-case-prompt-degraded", 60_000) {
             "[PromptOn] $reason — not calling it again for ${delay.inWholeSeconds}s" +
                 if (cached != null) "; the cached answer keeps serving" else ""
         }
     }
 
-    private fun postResolve(
+    private fun postUseCasePrompt(
         useCase: String,
         prompt: String?,
         environment: String?,
         variables: Map<String, Any?>?,
-    ): ServerResolution {
-        val response = postResolveResponse(useCase, prompt, environment, variables)
+    ): ServerUseCasePrompt {
+        val response = postUseCasePromptResponse(useCase, prompt, environment, variables)
         if (response.status != 200) throw resolveError(useCase, response)
-        return parseServerResolution(Ptn.parseObject(response.body))
+        return parseServerUseCasePrompt(Ptn.parseObject(response.body))
     }
 
-    private fun postResolveResponse(
+    private fun postUseCasePromptResponse(
         useCase: String,
         prompt: String?,
         environment: String?,
         variables: Map<String, Any?>?,
     ): HttpResponse {
         val request = LinkedHashMap<String, Any?>()
-        request["use_case"] = useCase
         request["environment"] = environment ?: config.environment
         prompt?.let { request["prompt"] = it }
         variables?.let { request["variables"] = it }
@@ -615,7 +610,10 @@ public class PromptOn internal constructor(
         return requireTransport().execute(
             HttpRequest(
                 method = "POST",
-                url = "${config.baseUrl}/resolve",
+                url = "${config.baseUrl}/use-cases/${java.net.URLEncoder.encode(
+                    useCase,
+                    java.nio.charset.StandardCharsets.UTF_8,
+                )}/prompt",
                 headers = headers(json = true),
                 body = Ptn.canonicalJson(Ptn.toObject(request)),
             ),
@@ -638,12 +636,14 @@ public class PromptOn internal constructor(
             reason == "unresolved" -> UnresolvedUseCaseException(useCase)
             reason == "unknown_prompt" ->
                 UnknownPromptException(
-                    useCase,
+                    Ptn.asString(details?.get("key")) ?: useCase,
                     Ptn.asString(details?.get("prompt")) ?: Resolver.DEFAULT_PROMPT,
-                    Ptn.asArray(details?.get("available_prompts"))?.mapNotNull { Ptn.asString(it) }.orEmpty(),
+                    Ptn.asArray(details?.get("prompt_names"))?.mapNotNull { Ptn.asString(it) }.orEmpty(),
                 )
 
-            details?.get("use_case") != null -> UnknownUseCaseException(useCase)
+            reason == "unknown_use_case" || details?.get("key") != null ->
+                UnknownUseCaseException(Ptn.asString(details?.get("key")) ?: useCase)
+
             else ->
                 PromptOnApiException(
                     response.status,
@@ -654,23 +654,24 @@ public class PromptOn internal constructor(
         }
     }
 
-    private fun parseServerResolution(body: JsonObject): ServerResolution {
+    private fun parseServerUseCasePrompt(body: JsonObject): ServerUseCasePrompt {
         val deployment = Ptn.asObject(body["deployment"])
         val version = Ptn.asObject(body["prompt_version"])
 
         fun map(key: String): Map<String, Any?> = Ptn.toNativeMap(body[key])
-        return ServerResolution(
-            useCase = Ptn.asString(body["use_case"]) ?: "",
+        return ServerUseCasePrompt(
+            key = Ptn.asString(body["key"]) ?: "",
             kind = UseCaseKind.fromWire(Ptn.asString(body["kind"])),
             deploymentId = Ptn.asString(deployment?.get("id")),
             deploymentRevision = Ptn.asInt(deployment?.get("revision")),
             prompt = Ptn.asString(body["prompt"]),
-            prompts = Ptn.asArray(body["prompts"])?.mapNotNull { Ptn.asString(it) }.orEmpty(),
+            promptNames = Ptn.asArray(body["prompt_names"])?.mapNotNull { Ptn.asString(it) }.orEmpty(),
+            source = UseCaseSource.fromWire(Ptn.asString(body["source"])),
             model = Ptn.asString(body["model"]),
             modelId = Ptn.asString(body["model_id"]),
             provider = Ptn.asString(body["provider"]),
-            effectiveParams = map("effective_params"),
-            effectiveProviderOptions = map("effective_provider_options"),
+            params = map("params"),
+            providerOptions = map("provider_options"),
             promptVersionId = Ptn.asString(version?.get("id")),
             promptVersionNumber = Ptn.asInt(version?.get("number")),
             messages =
@@ -688,34 +689,34 @@ public class PromptOn internal constructor(
         )
     }
 
-    private fun toResolution(
-        server: ServerResolution,
+    private fun toUseCase(
+        server: ServerUseCasePrompt,
         environment: String,
-    ): Resolution =
-        Resolution(
-            useCase = server.useCase,
+    ): UseCase =
+        UseCase(
+            key = server.key,
             kind = server.kind,
             environment = environment,
             deploymentId = server.deploymentId,
             deploymentRevision = server.deploymentRevision,
             prompt = server.prompt,
-            availablePrompts = server.prompts,
+            promptNames = server.promptNames,
             model = server.model,
             modelId = server.modelId,
             provider = server.provider,
-            effectiveParams = server.effectiveParams,
-            effectiveProviderOptions = server.effectiveProviderOptions,
+            params = server.params,
+            providerOptions = server.providerOptions,
             promptVersionId = server.promptVersionId,
             promptVersionNumber = server.promptVersionNumber,
             engine = TemplateEngine.LIQUID,
-            messages = server.messages,
+            messageTemplates = server.messages,
             textTemplate = server.text,
             inputSchema = emptyList(),
-            payloadPolicy = policyFor(server.useCase),
-            source = ResolutionSource.REMOTE,
+            payloadPolicy = policyFor(server.key),
+            source = server.source ?: UseCaseSource.REMOTE,
             etag = server.etag,
             warnings = server.warnings,
-        )
+        ).also { it.owner = this }
 }
 
 private fun SdkInfo.asMap(): Map<String, Any?> = mapOf("name" to name, "version" to version)

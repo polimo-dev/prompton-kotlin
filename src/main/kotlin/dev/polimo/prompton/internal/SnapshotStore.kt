@@ -1,7 +1,7 @@
 package dev.polimo.prompton.internal
 
-import dev.polimo.prompton.ResolutionSource
-import dev.polimo.prompton.SnapshotDocument
+import dev.polimo.prompton.UseCaseDocument
+import dev.polimo.prompton.UseCaseSource
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.IOException
@@ -11,12 +11,12 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.time.Instant
 
-/** One snapshot document plus where it came from and when it was last confirmed current. */
+/** One use case document plus where it came from and when it was last confirmed current. */
 internal data class SnapshotEntry(
-    val document: SnapshotDocument,
+    val document: UseCaseDocument,
     val etag: String?,
     val lastModified: String?,
-    val source: ResolutionSource,
+    val source: UseCaseSource,
     /** When this document's bytes were received. */
     val fetchedAt: Instant,
     /** When the server last confirmed the document is current (a 200 or a 304). */
@@ -28,7 +28,7 @@ internal data class SnapshotEntry(
 /**
  * The disk tier.
  *
- * The snapshot bytes go to `<path>` and the ETag, `Last-Modified`, project and environment to a
+ * The use case document bytes go to `<path>` and the ETag, `Last-Modified`, project and environment to a
  * `<path>.meta.json` sidecar — the body carries no timestamp, because the ETag is a hash of it.
  * Writes are atomic (temp file, then rename), so several processes on one host can share the file:
  * a reader either sees the old file or the new one, and a partial or corrupt file is ignored rather
@@ -39,7 +39,7 @@ internal object SnapshotFiles {
 
     fun read(
         path: Path,
-        source: ResolutionSource,
+        source: UseCaseSource,
         expectedEnvironment: String,
         expectedProject: String?,
     ): SnapshotEntry? {
@@ -48,28 +48,28 @@ internal object SnapshotFiles {
                 if (!Files.isRegularFile(path)) return null
                 String(Files.readAllBytes(path), StandardCharsets.UTF_8)
             } catch (e: IOException) {
-                PtnLog.warn("[PromptOn] could not read the ${source.wire} snapshot at $path: ${e.message}")
+                PtnLog.warn("[PromptOn] could not read the ${source.wire} use case document at $path: ${e.message}")
                 return null
             }
 
         val document =
             try {
-                SnapshotDocument.parse(body)
+                UseCaseDocument.parse(body)
             } catch (e: RuntimeException) {
-                PtnLog.warn("[PromptOn] ignoring an unreadable ${source.wire} snapshot at $path: ${e.message}")
+                PtnLog.warn("[PromptOn] ignoring an unreadable ${source.wire} use case document at $path: ${e.message}")
                 return null
             }
 
         if (document.environment != expectedEnvironment) {
             PtnLog.warn(
-                "[PromptOn] refusing the ${source.wire} snapshot at $path: it is for environment " +
+                "[PromptOn] refusing the ${source.wire} use case document at $path: it is for environment " +
                     "'${document.environment}', this process reads '$expectedEnvironment'",
             )
             return null
         }
         if (expectedProject != null && document.project != null && document.project != expectedProject) {
             PtnLog.warn(
-                "[PromptOn] refusing the ${source.wire} snapshot at $path: it is for project " +
+                "[PromptOn] refusing the ${source.wire} use case document at $path: it is for project " +
                     "'${document.project}', this process reads '$expectedProject'",
             )
             return null
@@ -105,7 +105,7 @@ internal object SnapshotFiles {
             atomicWrite(metaPath(path), Ptn.canonicalJson(json))
         } catch (e: IOException) {
             PtnLog.throttled("disk-cache-write", 60_000) {
-                "[PromptOn] could not write the snapshot disk cache at $path: ${e.message}"
+                "[PromptOn] could not write the use case document disk cache at $path: ${e.message}"
             }
         }
     }

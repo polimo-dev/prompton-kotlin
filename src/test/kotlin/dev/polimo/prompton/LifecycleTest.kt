@@ -36,7 +36,7 @@ class LifecycleTest {
         Thread
             .getAllStackTraces()
             .keys
-            .count { it.name == "prompton-snapshot" || it.name == "prompton-logs" }
+            .count { it.name == "prompton-use-cases" || it.name == "prompton-logs" }
 
     @Test
     @Order(1)

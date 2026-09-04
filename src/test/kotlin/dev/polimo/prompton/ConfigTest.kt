@@ -27,7 +27,7 @@ class ConfigTest {
         assertEquals("https://app.prompton.ai/api/v1", config.baseUrl)
         assertEquals("production", config.environment)
         assertEquals(10_000, config.cacheTtl.inWholeMilliseconds)
-        assertEquals("prompton-kotlin/0.1.0", config.userAgent)
+        assertEquals("prompton-kotlin/0.2.0", config.userAgent)
         assertEquals(PromptOnMode.LIVE, config.mode)
         assertTrue(config.diskCacheEnabled)
     }
@@ -75,7 +75,7 @@ class ConfigTest {
     fun `the default disk cache path is named by project and environment`() {
         withEnvironment(emptyMap())
         val path = PromptOnConfig(apiKey = "ptn_acme_secret", environment = "staging").resolvedDiskCachePath
-        assertTrue(path.toString().endsWith("prompton/snapshot-acme-staging.json"), path.toString())
+        assertTrue(path.toString().endsWith("prompton/use-cases-acme-staging.json"), path.toString())
     }
 
     @Test

@@ -3,16 +3,16 @@ package dev.polimo.prompton.conformance
 import dev.polimo.prompton.CostSource
 import dev.polimo.prompton.ErrorKind
 import dev.polimo.prompton.FakeClock
-import dev.polimo.prompton.GenerationError
-import dev.polimo.prompton.GenerationMeta
+import dev.polimo.prompton.LogError
 import dev.polimo.prompton.PayloadPolicy
 import dev.polimo.prompton.PromptOn
 import dev.polimo.prompton.PromptOnConfig
 import dev.polimo.prompton.PromptOnMode
-import dev.polimo.prompton.ProviderOutcome
-import dev.polimo.prompton.ResolutionSource
+import dev.polimo.prompton.Result
 import dev.polimo.prompton.SdkInfo
+import dev.polimo.prompton.TrackMeta
 import dev.polimo.prompton.Usage
+import dev.polimo.prompton.UseCaseSource
 import dev.polimo.prompton.assertJsonEquivalent
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -23,25 +23,24 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Checks the record builder against the golden monitoring logs in `conformance/generation_record.json`.
+ * Checks the record builder against the golden monitoring logs in `conformance/log_record.json`.
  *
  * The goldens were produced by the reference implementation, so their `sdk` block names the Elixir
  * SDK; every other field must match byte for byte.
  */
-class GenerationRecordConformanceTest {
-    private val productionSnapshot: String =
-        (Conformance.load("resolve")["snapshots"] as JsonObject)["production"].toString()
+class LogRecordConformanceTest {
+    private val productionDocument: String =
+        (Conformance.load("use_case")["documents"] as JsonObject)["production"].toString()
 
     @Test
     fun `chat success`() {
         val clock = FakeClock()
         val record =
-            build(clock, ResolutionSource.REMOTE) { prompton ->
-                val resolution = prompton.resolve("greeting")
-                val messages = resolution.render(mapOf("name" to "Ada")).messages!!
-                prompton.generateBlocking(
-                    resolution,
-                    GenerationMeta(
+            build(clock, UseCaseSource.REMOTE) { prompton ->
+                val useCase = prompton.useCase("greeting")
+                val messages = useCase.messages(mapOf("name" to "Ada"))
+                useCase.trackBlocking(
+                    TrackMeta(
                         id = "0198f2a1-1111-7000-8000-000000000001",
                         variables = mapOf("name" to "Ada"),
                         inputMessages = messages,
@@ -53,8 +52,8 @@ class GenerationRecordConformanceTest {
                     ),
                 ) { call ->
                     clock.advanceMillis(842)
-                    call.succeeded(
-                        ProviderOutcome(
+                    call.result(
+                        Result(
                             content = "Hello, Ada! Lovely to see you.",
                             finishReason = "stop",
                             usage =
@@ -84,12 +83,11 @@ class GenerationRecordConformanceTest {
     fun `chat error without output`() {
         val clock = FakeClock()
         val record =
-            build(clock, ResolutionSource.REMOTE) { prompton ->
-                val resolution = prompton.resolve("greeting")
-                val messages = resolution.render(mapOf("name" to "Ada")).messages!!
-                prompton.generateBlocking(
-                    resolution,
-                    GenerationMeta(
+            build(clock, UseCaseSource.REMOTE) { prompton ->
+                val useCase = prompton.useCase("greeting")
+                val messages = useCase.messages(mapOf("name" to "Ada"))
+                useCase.trackBlocking(
+                    TrackMeta(
                         id = "0198f2a1-1111-7000-8000-000000000002",
                         variables = mapOf("name" to "Ada"),
                         inputMessages = messages,
@@ -99,7 +97,7 @@ class GenerationRecordConformanceTest {
                 ) { call ->
                     clock.advanceMillis(1503)
                     call.failed(
-                        GenerationError(
+                        LogError(
                             kind = ErrorKind.RATE_LIMITED,
                             status = 429,
                             message = "rate limited by upstream provider",
@@ -114,12 +112,11 @@ class GenerationRecordConformanceTest {
     fun `chat error with usage preserved`() {
         val clock = FakeClock()
         val record =
-            build(clock, ResolutionSource.REMOTE) { prompton ->
-                val resolution = prompton.resolve("greeting")
-                val messages = resolution.render(mapOf("name" to "Ada")).messages!!
-                prompton.generateBlocking(
-                    resolution,
-                    GenerationMeta(
+            build(clock, UseCaseSource.REMOTE) { prompton ->
+                val useCase = prompton.useCase("greeting")
+                val messages = useCase.messages(mapOf("name" to "Ada"))
+                useCase.trackBlocking(
+                    TrackMeta(
                         id = "0198f2a1-1111-7000-8000-000000000003",
                         variables = mapOf("name" to "Ada"),
                         inputMessages = messages,
@@ -128,8 +125,8 @@ class GenerationRecordConformanceTest {
                 ) { call ->
                     clock.advanceMillis(2310)
                     call.failed(
-                        GenerationError(kind = ErrorKind.PARSE, message = "unexpected end of JSON input"),
-                        ProviderOutcome(
+                        LogError(kind = ErrorKind.PARSE, message = "unexpected end of JSON input"),
+                        Result(
                             content = "{\"greeting\": \"Hello, Ada!\"",
                             finishReason = "length",
                             usage =
@@ -151,13 +148,15 @@ class GenerationRecordConformanceTest {
         val clock = FakeClock()
         val text = "PromptOn is the control plane for your app's LLM prompts."
         val record =
-            build(clock, ResolutionSource.DISK) { prompton ->
+            build(clock, UseCaseSource.DISK) { prompton ->
                 // The golden record was generated against the SDK's default payload policy, so this
-                // case overrides the snapshot's `hash` policy for `embed` and keeps the variables raw.
-                val resolution = prompton.resolve("embed").copy(payloadPolicy = PayloadPolicy.DEFAULT)
-                prompton.generateBlocking(
-                    resolution,
-                    GenerationMeta(
+                // case overrides the document's `hash` policy for `embed` and keeps the variables raw.
+                val useCase =
+                    prompton.useCase("embed").copy(payloadPolicy = PayloadPolicy.DEFAULT).also {
+                        it.owner = prompton
+                    }
+                useCase.trackBlocking(
+                    TrackMeta(
                         id = "0198f2a1-1111-7000-8000-000000000004",
                         variables = mapOf("text" to text),
                         traceId = "ingest:2026-09-04:batch-7",
@@ -165,8 +164,8 @@ class GenerationRecordConformanceTest {
                     ),
                 ) { call ->
                     clock.advanceMillis(96)
-                    call.succeeded(
-                        ProviderOutcome(
+                    call.result(
+                        Result(
                             usage =
                                 Usage(
                                     inputTokens = 14,
@@ -193,14 +192,14 @@ class GenerationRecordConformanceTest {
     }
 
     @Test
-    fun `the batch envelope wraps records under generations`() {
-        val envelope = (Conformance.load("generation_record")["batch_envelope"] as JsonObject)["request"] as JsonObject
-        assertEquals(setOf("generations"), envelope.keys)
-        val records = envelope["generations"] as JsonArray
+    fun `the batch envelope wraps records under logs`() {
+        val envelope = (Conformance.load("log_record")["batch_envelope"] as JsonObject)["request"] as JsonObject
+        assertEquals(setOf("logs"), envelope.keys)
+        val records = envelope["logs"] as JsonArray
         assertEquals(5, records.size)
         assertTrue(records.all { (it as JsonObject).containsKey("id") })
 
-        val endpoint = Conformance.load("generation_record")["endpoint"] as JsonObject
+        val endpoint = Conformance.load("log_record")["endpoint"] as JsonObject
         assertEquals(200, Conformance.native(endpoint["max_records_per_request"]).toString().toInt())
         assertEquals(202, Conformance.native(endpoint["success_status"]).toString().toInt())
         assertEquals(200, PromptOnConfig().log.maxBatchSize)
@@ -219,11 +218,11 @@ class GenerationRecordConformanceTest {
 
     private fun build(
         clock: FakeClock,
-        source: ResolutionSource,
+        source: UseCaseSource,
         block: (PromptOn) -> Unit,
     ): JsonObject =
         PromptOn(config(PromptOnMode.TEST), clock).use { prompton ->
-            prompton.putSnapshot(productionSnapshot, source)
+            prompton.putUseCaseDocument(productionDocument, source)
             block(prompton)
             prompton.capturedRecords().single()
         }
@@ -243,6 +242,6 @@ class GenerationRecordConformanceTest {
 
     private fun rawGolden(name: String): JsonObject =
         Conformance
-            .cases("generation_record", "records")
+            .cases("log_record", "records")
             .first { Conformance.string(it, "name") == name }["record"] as JsonObject
 }

@@ -1,11 +1,11 @@
 package dev.polimo.prompton
 
-/** Snapshot documents the runtime tests fetch, cache and refuse. */
+/** Use case documents the runtime tests fetch, cache and refuse. */
 object SnapshotFixtures {
     const val PRODUCTION_ETAG: String = "\"sha256-aaaa\""
     const val UPDATED_ETAG: String = "\"sha256-bbbb\""
 
-    fun snapshot(
+    fun useCaseDocument(
         environment: String = "production",
         project: String = "fixture",
         temperature: Double = 0.2,
@@ -13,7 +13,7 @@ object SnapshotFixtures {
     ): String =
         """
         {
-          "schema_version": 3,
+          "schema_version": 4,
           "project": "$project",
           "environment": "$environment",
           "use_cases": {
@@ -33,7 +33,10 @@ object SnapshotFixtures {
               "model_id": "0198f2a1-0000-7000-8000-00000000e001",
               "params": {"temperature": $temperature},
               "provider_options": {},
-              "prompt_pins": {"default": "0198f2a1-0000-7000-8000-00000000a001"}
+              "prompt_pins": {
+                "default": "0198f2a1-0000-7000-8000-00000000a001",
+                "ko": "0198f2a1-0000-7000-8000-00000000a002"
+              }
             }
           },
           "prompt_versions": {
@@ -45,6 +48,17 @@ object SnapshotFixtures {
               "messages": [
                 {"role": "system", "content": "$systemPrompt"},
                 {"role": "user", "content": "Say hello to {{ name }}."}
+              ],
+              "text_template": null
+            },
+            "0198f2a1-0000-7000-8000-00000000a002": {
+              "id": "0198f2a1-0000-7000-8000-00000000a002",
+              "prompt_id": "0198f2a1-0000-7000-8000-00000000b002",
+              "number": 4,
+              "engine": "liquid",
+              "messages": [
+                {"role": "system", "content": "친절한 인사 도우미입니다."},
+                {"role": "user", "content": "{{ name }}에게 한국어로 인사해 주세요."}
               ],
               "text_template": null
             }

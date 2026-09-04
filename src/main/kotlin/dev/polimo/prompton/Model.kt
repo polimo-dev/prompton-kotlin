@@ -24,8 +24,8 @@ public enum class UseCaseKind {
     }
 }
 
-/** Where the configuration behind a resolution came from. */
-public enum class ResolutionSource {
+/** Where the use case document behind a call came from. */
+public enum class UseCaseSource {
     REMOTE,
     DISK,
     BUNDLE,
@@ -35,7 +35,7 @@ public enum class ResolutionSource {
     public val wire: String get() = name.lowercase()
 
     public companion object {
-        public fun fromWire(value: String?): ResolutionSource? =
+        public fun fromWire(value: String?): UseCaseSource? =
             entries.firstOrNull { it.wire == value?.trim()?.lowercase() }
     }
 }
@@ -55,7 +55,7 @@ public enum class PayloadMode {
     }
 }
 
-/** The use case's payload policy, as the snapshot carries it. */
+/** The use case's payload policy, as the use case document carries it. */
 public data class PayloadPolicy
     @JvmOverloads
     constructor(
@@ -82,8 +82,8 @@ public data class InputVariable
         val description: String? = null,
     )
 
-/** A use case as the snapshot describes it. */
-public data class UseCase(
+/** A use case as the use case document describes it. */
+public data class UseCaseEntry(
     val id: String?,
     val key: String,
     val kind: UseCaseKind,
@@ -123,10 +123,4 @@ public data class ModelEntry(
     val providerOptions: Map<String, Any?>,
     val capabilities: List<String>,
     val status: String?,
-)
-
-/** A rendered prompt: `messages` for a chat use case, `text` for a text one. */
-public data class RenderedPrompt(
-    val messages: List<PromptMessage>?,
-    val text: String?,
 )

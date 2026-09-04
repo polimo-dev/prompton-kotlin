@@ -53,7 +53,7 @@
       "text_template": null
     }
   },
-  "schema_version": 3,
+  "schema_version": 4,
   "use_cases": {
     "greeting": {
       "default_params": {

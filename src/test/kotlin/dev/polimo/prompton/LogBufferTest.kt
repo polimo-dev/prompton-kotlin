@@ -34,8 +34,8 @@ class LogBufferTest {
 
     private fun record(
         index: Int,
-        status: GenerationStatus = GenerationStatus.OK,
-    ) = GenerationRecord(
+        status: LogStatus = LogStatus.OK,
+    ) = LogRecord(
         useCase = "greeting",
         model = "openai/gpt-4o-mini",
         status = status,
@@ -48,7 +48,7 @@ class LogBufferTest {
         HttpResponse(202, emptyMap(), """{"accepted":$count,"duplicates":0,"rejected":[]}""")
 
     /**
-     * A transport that serves the snapshot on `GET` and hands every `POST /generations` to
+     * A transport that serves the snapshot on `GET` and hands every `POST /logs` to
      * [onPost], so a log assertion never counts the snapshot fetch.
      */
     private fun transport(onPost: (HttpRequest) -> HttpResponse): StubTransport =
@@ -57,7 +57,7 @@ class LogBufferTest {
                 HttpResponse(
                     200,
                     mapOf("etag" to SnapshotFixtures.PRODUCTION_ETAG),
-                    SnapshotFixtures.snapshot(),
+                    SnapshotFixtures.useCaseDocument(),
                 )
             } else {
                 onPost(request)
@@ -68,7 +68,7 @@ class LogBufferTest {
         (
             (
                 dev.polimo.prompton.internal.Ptn
-                    .parseObject(request.body!!)["generations"]
+                    .parseObject(request.body!!)["logs"]
             ) as JsonArray
         ).map { it as JsonObject }
 
@@ -76,7 +76,7 @@ class LogBufferTest {
         batchOf(request).map { (it["id"] as JsonPrimitive).content }
 
     @Test
-    fun `a batch is posted to the generations endpoint`() {
+    fun `a batch is posted to the logs endpoint`() {
         val transport = transport { accepted(1) }
         PromptOn(config(transport), FakeClock()).use { prompton ->
             prompton.log(record(1))
@@ -84,7 +84,7 @@ class LogBufferTest {
             assertEquals(1, result.accepted)
             assertEquals(1, transport.postCount())
             assertEquals(
-                "https://prompton.test/api/v1/generations?environment=production",
+                "https://prompton.test/api/v1/logs?environment=production",
                 transport.lastPost().url,
             )
             assertEquals("Bearer ptn_fixture_secret", transport.lastPost().headers["authorization"])
@@ -102,7 +102,7 @@ class LogBufferTest {
             val sent = batchOf(transport.lastPost()).single()
             val sdk = sent["sdk"] as JsonObject
             assertEquals("prompton-kotlin", (sdk["name"] as JsonPrimitive).content)
-            assertEquals("0.1.0", (sdk["version"] as JsonPrimitive).content)
+            assertEquals("0.2.0", (sdk["version"] as JsonPrimitive).content)
             val id = (sent["id"] as JsonPrimitive).content
             assertEquals('7', id[14], "the version nibble of a UUIDv7 is 7: $id")
             assertNotNull(UuidV7.timestampMillis(id))
@@ -412,7 +412,7 @@ class LogBufferTest {
             )
         PromptOn(config(transport, options), FakeClock()).use { prompton ->
             prompton.log(
-                record(1).copy(input = GenerationInput(variables = mapOf("secret" to "hunter2"))),
+                record(1).copy(input = LogInput(variables = mapOf("secret" to "hunter2"))),
             )
             prompton.flushBlocking()
 

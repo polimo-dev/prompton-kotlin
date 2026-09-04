@@ -7,17 +7,17 @@ public open class PromptOnException(
 ) : RuntimeException(message, cause)
 
 /**
- * No snapshot is available from any tier: PromptOn is unreachable and neither the disk cache nor a
- * bundled snapshot holds a usable document for this project and environment.
+ * No use case document is available from any tier: PromptOn is unreachable and neither the disk
+ * cache nor a bundled document is usable for this project and environment.
  */
-public class SnapshotUnavailableException(
+public class UseCaseDocumentUnavailableException(
     public val environment: String,
     message: String =
-        "no PromptOn snapshot for environment '$environment': the server is unreachable and " +
+        "no PromptOn use case document for environment '$environment': the server is unreachable and " +
             "nothing is cached on disk or bundled",
 ) : PromptOnException(message)
 
-/** The snapshot has no use case with this key. */
+/** The use case document has no use case with this key. */
 public class UnknownUseCaseException(
     public val useCase: String,
 ) : PromptOnException("unknown use case: $useCase")
@@ -34,10 +34,10 @@ public class UnresolvedUseCaseException(
 public class UnknownPromptException(
     public val useCase: String,
     public val prompt: String,
-    public val availablePrompts: List<String>,
+    public val promptNames: List<String>,
 ) : PromptOnException(
         "the live deployment of '$useCase' pins no prompt named \"$prompt\" — " +
-            "available prompts: ${availablePrompts.joinToString(", ")}",
+            "available prompts: ${promptNames.joinToString(", ")}",
     )
 
 /** The template reads a variable the call did not supply. */

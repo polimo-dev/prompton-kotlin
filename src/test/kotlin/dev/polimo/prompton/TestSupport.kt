@@ -46,7 +46,7 @@ class StubTransport(
 
     fun lastRequest(): HttpRequest = synchronized(requests) { requests.last() }
 
-    /** Only the `POST /generations` calls, so a snapshot fetch never skews a log assertion. */
+    /** Only the `POST /logs` calls, so a snapshot fetch never skews a log assertion. */
     fun posts(): List<HttpRequest> = synchronized(requests) { requests.filter { it.method == "POST" } }
 
     fun postCount(): Int = posts().size

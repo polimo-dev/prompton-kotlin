@@ -10,12 +10,12 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 /**
- * `POST /generations`: one batch of monitoring logs, for one environment.
+ * `POST /logs`: one batch of monitoring logs, for one environment.
  *
  * It is a separate object rather than a method on the SDK instance so the log queue's worker thread
  * never pins that instance: a forgotten instance stays collectible and its threads can be released.
  */
-internal class GenerationsClient(
+internal class LogClient(
     private val config: PromptOnConfig,
     private val transport: HttpTransport?,
 ) {
@@ -23,9 +23,9 @@ internal class GenerationsClient(
         environment: String,
         records: List<JsonObject>,
     ): BatchOutcome {
-        val body = Ptn.canonicalJson(JsonObject(mapOf("generations" to JsonArray(records))))
+        val body = Ptn.canonicalJson(JsonObject(mapOf("logs" to JsonArray(records))))
         val url =
-            "${config.baseUrl}/generations?environment=" +
+            "${config.baseUrl}/logs?environment=" +
                 URLEncoder.encode(environment, StandardCharsets.UTF_8)
         val client =
             transport ?: throw PromptOnException(

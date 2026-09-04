@@ -19,7 +19,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
-/** What one `POST /generations` call did. */
+/** What one `POST /logs` call did. */
 internal sealed interface BatchOutcome {
     /** `202`: the server took the batch, possibly rejecting individual records. */
     data class Accepted(

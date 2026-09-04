@@ -3,7 +3,7 @@ package dev.polimo.prompton
 /**
  * PromptOn's normalised stop reason.
  *
- * Providers each spell the reason a generation ended differently; the SDK and the server both map
+ * Providers each spell the reason a log ended differently; the SDK and the server both map
  * the raw `finish_reason` onto these five values with the same table, so the truncation rate means
  * the same thing whichever provider produced the call.
  */

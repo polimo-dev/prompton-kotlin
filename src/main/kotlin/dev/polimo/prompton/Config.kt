@@ -13,7 +13,7 @@ public enum class PromptOnMode {
     /** Normal operation: poll the server, cache to disk, send monitoring logs. */
     LIVE,
 
-    /** No HTTP at all. Snapshots are injected and monitoring logs are captured for assertions. */
+    /** No HTTP at all. Use case documents are injected and monitoring logs are captured for assertions. */
     TEST,
 
     /** Disk cache and bundle only: nothing is fetched and nothing is sent. */
@@ -69,25 +69,25 @@ public data class PromptOnConfig
         val environment: String = Env.get("PTN_ENVIRONMENT") ?: DEFAULT_ENVIRONMENT,
         /** The project slug. Defaults to the one embedded in the API key. */
         val project: String? = Env.get("PTN_PROJECT") ?: projectFromApiKey(apiKey),
-        /** How long a snapshot is served without revalidating. */
+        /** How long a use case document is served without revalidating. */
         val cacheTtl: Duration = 10.seconds,
-        /** Whether a background thread revalidates the snapshot every [cacheTtl]. */
+        /** Whether a background thread revalidates the use case document every [cacheTtl]. */
         val pollingEnabled: Boolean = true,
         val connectTimeout: Duration = 5.seconds,
         val requestTimeout: Duration = 5.seconds,
         /** The first fetch after start-up gets a shorter budget so it can never hold up a boot. */
         val startupFetchTimeout: Duration = 3.seconds,
-        /** Mirror every fetched snapshot to a local file. */
+        /** Mirror every fetched use case document to a local file. */
         val diskCacheEnabled: Boolean = true,
         /** Where that file lives. Defaults to the OS cache directory, named by project and environment. */
         val diskCachePath: Path? = null,
-        /** A snapshot JSON file shipped inside the app, used when memory and disk are empty. */
+        /** A use case document JSON file shipped inside the app, used when memory and disk are empty. */
         val bundlePath: Path? = null,
         val log: LogOptions = LogOptions(),
         /** Send `sha256(end_user_ref)` instead of the raw reference. */
         val hashEndUser: Boolean = false,
         val mode: PromptOnMode = PromptOnMode.LIVE,
-        /** The policy used for a use case whose snapshot carries none. */
+        /** The policy used for a use case whose document carries none. */
         val payloadDefaults: PayloadPolicy = PayloadPolicy.DEFAULT,
         /** Replaced in tests with a stub; `null` means the built-in `java.net.http` transport. */
         val transport: HttpTransport? = null,
@@ -108,14 +108,14 @@ public data class PromptOnConfig
                 when {
                     !diskCacheEnabled -> null
                     diskCachePath != null -> diskCachePath
-                    else -> defaultCacheDirectory().resolve("snapshot-${project ?: "default"}-$environment.json")
+                    else -> defaultCacheDirectory().resolve("use-cases-${project ?: "default"}-$environment.json")
                 }
 
         public companion object {
             public const val DEFAULT_HOST: String = "https://app.prompton.ai"
             public const val DEFAULT_ENVIRONMENT: String = "production"
             public const val SDK_NAME: String = "prompton-kotlin"
-            public const val SDK_VERSION: String = "0.1.0"
+            public const val SDK_VERSION: String = "0.2.0"
 
             /** `ptn_<project_slug>_<random>` carries the project slug; that is where the cache file is named from. */
             public fun projectFromApiKey(apiKey: String?): String? {

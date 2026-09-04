@@ -13,7 +13,7 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * The caching rules: a 10-second window served from memory, background revalidation with
- * `If-None-Match`, and a refresh that can never block or fail a generation.
+ * `If-None-Match`, and a refresh that can never block or fail a log.
  */
 class SnapshotCacheTest {
     @TempDir
@@ -34,7 +34,7 @@ class SnapshotCacheTest {
     )
 
     private fun okResponse(
-        body: String = SnapshotFixtures.snapshot(),
+        body: String = SnapshotFixtures.useCaseDocument(),
         etag: String = SnapshotFixtures.PRODUCTION_ETAG,
     ) = HttpResponse(200, mapOf("etag" to etag, "last-modified" to "Fri, 04 Sep 2026 00:21:48 GMT"), body)
 
@@ -43,7 +43,7 @@ class SnapshotCacheTest {
         val transport = StubTransport { okResponse() }
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            repeat(5) { assertEquals("openai/gpt-4o-mini", prompton.resolve("greeting").model) }
+            repeat(5) { assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model) }
             assertEquals(1, transport.requestCount(), "one fetch for five resolves inside the TTL")
             assertStaysTrue("no background fetch inside the TTL") { transport.requestCount() == 1 }
         }
@@ -57,40 +57,40 @@ class SnapshotCacheTest {
             }
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
             assertEquals(1, transport.requestCount())
 
             clock.advanceMillis(11_000)
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
             await("the background revalidation") { transport.requestCount() == 2 }
 
             val revalidation = transport.lastRequest()
             assertEquals(SnapshotFixtures.PRODUCTION_ETAG, revalidation.headers["if-none-match"])
-            assertEquals("https://prompton.test/api/v1/snapshot?environment=production", revalidation.url)
+            assertEquals("https://prompton.test/api/v1/use-cases?environment=production", revalidation.url)
             assertEquals("Bearer ptn_fixture_secret", revalidation.headers["authorization"])
             assertTrue(revalidation.headers["user-agent"]!!.startsWith("prompton-kotlin/"))
 
-            await("the 304 to be absorbed") { !prompton.snapshotInfo().stale }
-            assertEquals(ResolutionSource.REMOTE, prompton.snapshotInfo().source)
+            await("the 304 to be absorbed") { !prompton.useCaseDocumentInfo().stale }
+            assertEquals(UseCaseSource.REMOTE, prompton.useCaseDocumentInfo().source)
         }
     }
 
     @Test
     fun `a new document replaces the old one`() {
-        val body = AtomicReference(SnapshotFixtures.snapshot(temperature = 0.2))
+        val body = AtomicReference(SnapshotFixtures.useCaseDocument(temperature = 0.2))
         val etag = AtomicReference(SnapshotFixtures.PRODUCTION_ETAG)
         val transport = StubTransport { okResponse(body.get(), etag.get()) }
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            assertEquals(0.2, prompton.resolve("greeting").effectiveParams["temperature"])
+            assertEquals(0.2, prompton.useCase("greeting").params["temperature"])
 
-            body.set(SnapshotFixtures.snapshot(temperature = 0.9))
+            body.set(SnapshotFixtures.useCaseDocument(temperature = 0.9))
             etag.set(SnapshotFixtures.UPDATED_ETAG)
             clock.advanceMillis(11_000)
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
 
-            await("the new document") { prompton.snapshotInfo().etag == SnapshotFixtures.UPDATED_ETAG }
-            assertEquals(0.9, prompton.resolve("greeting").effectiveParams["temperature"])
+            await("the new document") { prompton.useCaseDocumentInfo().etag == SnapshotFixtures.UPDATED_ETAG }
+            assertEquals(0.9, prompton.useCase("greeting").params["temperature"])
         }
     }
 
@@ -103,16 +103,16 @@ class SnapshotCacheTest {
             }
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
 
             clock.advanceMillis(11_000)
-            assertEquals("openai/gpt-4o-mini", prompton.resolve("greeting").model)
+            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
             await("the failed refresh") { transport.requestCount() == 2 }
             settle()
 
-            assertEquals("openai/gpt-4o-mini", prompton.resolve("greeting").model)
-            assertTrue(prompton.snapshotInfo().stale, "the entry is marked stale after a failed refresh")
-            assertNotNull(prompton.snapshotInfo().etag)
+            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
+            assertTrue(prompton.useCaseDocumentInfo().stale, "the entry is marked stale after a failed refresh")
+            assertNotNull(prompton.useCaseDocumentInfo().etag)
         }
     }
 
@@ -125,11 +125,11 @@ class SnapshotCacheTest {
             }
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
             clock.advanceMillis(11_000)
-            assertEquals("openai/gpt-4o-mini", prompton.resolve("greeting").model)
+            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
             await("the failed refresh") { transport.requestCount() == 2 }
-            assertEquals("openai/gpt-4o-mini", prompton.resolve("greeting").model)
+            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
         }
     }
 
@@ -146,19 +146,19 @@ class SnapshotCacheTest {
             }
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
 
             clock.advanceMillis(11_000)
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
             await("the rate-limited refresh") { transport.requestCount() == 2 }
             settle()
 
             clock.advanceMillis(11_000)
-            assertEquals("openai/gpt-4o-mini", prompton.resolve("greeting").model)
+            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
             assertStaysTrue("no request before Retry-After elapses") { transport.requestCount() == 2 }
 
             clock.advanceMillis(31_000)
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
             await("the retry after the pause") { transport.requestCount() == 3 }
         }
     }
@@ -180,18 +180,18 @@ class SnapshotCacheTest {
             }
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
             clock.advanceMillis(11_000)
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
             await("the rate-limited refresh") { transport.requestCount() == 2 }
             settle()
 
             clock.advanceMillis(40_000)
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
             assertStaysTrue("still inside the 45 second pause") { transport.requestCount() == 2 }
 
             clock.advanceMillis(6_000)
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
             await("the retry after 45 seconds") { transport.requestCount() == 3 }
         }
     }
@@ -205,11 +205,11 @@ class SnapshotCacheTest {
             }
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
 
             // The cache TTL brings the first (failing) refresh.
             clock.advanceMillis(10_000)
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
             await("the first refresh") { transport.requestCount() == 2 }
             settle()
 
@@ -217,12 +217,12 @@ class SnapshotCacheTest {
             var expected = 3
             for (gapSeconds in listOf(10L, 20L, 40L, 80L, 160L, 300L, 300L)) {
                 clock.advanceMillis(gapSeconds * 1000 - 1)
-                prompton.resolve("greeting")
+                prompton.useCase("greeting")
                 assertStaysTrue("no retry before ${gapSeconds}s", 100) {
                     transport.requestCount() == expected - 1
                 }
                 clock.advanceMillis(1)
-                prompton.resolve("greeting")
+                prompton.useCase("greeting")
                 await("the retry after ${gapSeconds}s") { transport.requestCount() == expected }
                 settle()
                 expected += 1
@@ -240,11 +240,11 @@ class SnapshotCacheTest {
             }
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
             clock.advanceMillis(11_000)
 
             val startedAt = System.nanoTime()
-            repeat(20) { prompton.resolve("greeting") }
+            repeat(20) { prompton.useCase("greeting") }
             val elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000
             assertTrue(elapsedMillis < 500, "20 resolves took ${elapsedMillis}ms while a refresh was in flight")
         }
@@ -263,7 +263,7 @@ class SnapshotCacheTest {
             }
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            prompton.resolve("greeting")
+            prompton.useCase("greeting")
             await("the start-up fetch") { transport.requestCount() == 1 }
 
             clock.advanceMillis(11_000)
@@ -272,7 +272,7 @@ class SnapshotCacheTest {
 
             repeat(5) { assertTrue(prompton.refreshBlocking(), "the cached document keeps serving") }
             assertEquals(2, transport.requestCount(), "a rate-limited server is not asked again")
-            assertEquals("openai/gpt-4o-mini", prompton.resolve("greeting").model)
+            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
 
             prompton.refreshBlocking(force = true)
             assertEquals(3, transport.requestCount(), "force is the deliberate way through the window")
@@ -284,10 +284,10 @@ class SnapshotCacheTest {
     }
 
     @Test
-    fun `with nothing cached anywhere resolution fails with a clear message`() {
+    fun `with nothing cached anywhere useCase fails with a clear message`() {
         val transport = StubTransport { HttpResponse(503, emptyMap(), "") }
         PromptOn(config(transport), FakeClock()).use { prompton ->
-            val error = assertFailsWith<SnapshotUnavailableException> { prompton.resolve("greeting") }
+            val error = assertFailsWith<UseCaseDocumentUnavailableException> { prompton.useCase("greeting") }
             assertTrue(error.message!!.contains("unreachable"), error.message!!)
             assertTrue(error.message!!.contains("production"), error.message!!)
         }
@@ -296,12 +296,12 @@ class SnapshotCacheTest {
     @Test
     fun `fetch once now is synchronous and export writes a bundle`() {
         val transport = StubTransport { okResponse() }
-        val bundle = tempDir.resolve("snapshot.production.json")
+        val bundle = tempDir.resolve("use-cases.production.json")
         PromptOn(config(transport).copy(pollingEnabled = false), FakeClock()).use { prompton ->
             assertTrue(prompton.refreshBlocking())
-            prompton.exportSnapshot(bundle)
+            prompton.exportUseCaseDocument(bundle)
         }
-        val exported = SnapshotDocument.parse(
+        val exported = UseCaseDocument.parse(
             java.nio.file.Files
                 .readString(bundle),
         )
@@ -309,7 +309,7 @@ class SnapshotCacheTest {
         assertEquals("fixture", exported.project)
         assertTrue(
             java.nio.file.Files
-                .exists(tempDir.resolve("snapshot.production.json.meta.json")),
+                .exists(tempDir.resolve("use-cases.production.json.meta.json")),
         )
     }
 

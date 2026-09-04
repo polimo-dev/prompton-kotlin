@@ -2,12 +2,12 @@ package dev.polimo.prompton.conformance
 
 import dev.polimo.prompton.MissingVariableException
 import dev.polimo.prompton.PromptMessage
-import dev.polimo.prompton.Resolution
 import dev.polimo.prompton.Resolver
-import dev.polimo.prompton.SnapshotDocument
 import dev.polimo.prompton.UnknownPromptException
 import dev.polimo.prompton.UnknownUseCaseException
 import dev.polimo.prompton.UnresolvedUseCaseException
+import dev.polimo.prompton.UseCase
+import dev.polimo.prompton.UseCaseDocument
 import dev.polimo.prompton.UseCaseKind
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -19,21 +19,21 @@ import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/** Runs every case of `conformance/resolve.json`: the algorithm `POST /api/v1/resolve` runs server-side. */
-class ResolveConformanceTest {
+/** Runs every case of `conformance/use_case.json`: the use case algorithm the server prompt endpoint runs. */
+class UseCaseConformanceTest {
     @Test
-    fun `resolve cases`() {
-        val file = Conformance.load("resolve")
-        val snapshots =
-            (file["snapshots"] as JsonObject).entries.associate { (name, document) ->
-                name to SnapshotDocument.parse(document.toString())
+    fun `use case cases`() {
+        val file = Conformance.load("use_case")
+        val documents =
+            (file["documents"] as JsonObject).entries.associate { (name, document) ->
+                name to UseCaseDocument.parse(document.toString())
             }
 
         var executed = 0
-        for (case in Conformance.cases("resolve")) {
+        for (case in Conformance.cases("use_case")) {
             val name = Conformance.string(case, "name")!!
-            val snapshot = snapshots.getValue(Conformance.string(case, "snapshot_ref")!!)
-            val useCase = Conformance.string(case, "use_case")!!
+            val document = documents.getValue(Conformance.string(case, "document_ref")!!)
+            val key = Conformance.string(case, "use_case")!!
             val prompt = Conformance.string(case, "prompt")
             val hasVariables = case.containsKey("variables")
             val variables = Conformance.nativeMap(case["variables"])
@@ -41,17 +41,21 @@ class ResolveConformanceTest {
 
             val actual =
                 try {
-                    val resolution = Resolver.resolve(snapshot, useCase, prompt)
-                    describe(resolution, hasVariables, variables)
+                    val useCase = Resolver.resolve(document, key, prompt)
+                    describe(useCase, hasVariables, variables)
                 } catch (e: UnknownUseCaseException) {
-                    buildJsonObject { put("error", "unknown_use_case") }
+                    buildJsonObject {
+                        put("error", "unknown_use_case")
+                        put("key", e.useCase)
+                    }
                 } catch (e: UnresolvedUseCaseException) {
                     buildJsonObject { put("error", "unresolved") }
                 } catch (e: UnknownPromptException) {
                     buildJsonObject {
                         put("error", "unknown_prompt")
+                        put("key", e.useCase)
                         put("prompt", e.prompt)
-                        put("available_prompts", JsonArray(e.availablePrompts.map { JsonPrimitive(it) }))
+                        put("prompt_names", JsonArray(e.promptNames.map { JsonPrimitive(it) }))
                     }
                 } catch (e: MissingVariableException) {
                     buildJsonObject {
@@ -67,37 +71,39 @@ class ResolveConformanceTest {
     }
 
     private fun describe(
-        resolution: Resolution,
+        useCase: UseCase,
         hasVariables: Boolean,
         variables: Map<String, Any?>?,
     ): JsonObject {
         val fields = LinkedHashMap<String, JsonElement>()
-        fields["deployment_id"] = nullable(resolution.deploymentId)
-        fields["revision"] = resolution.deploymentRevision?.let { JsonPrimitive(it) } ?: JsonNull
-        fields["kind"] = JsonPrimitive(resolution.kind.wire)
-        fields["prompt"] = nullable(resolution.prompt)
-        fields["prompts"] = JsonArray(resolution.availablePrompts.map { JsonPrimitive(it) })
-        fields["model"] = nullable(resolution.model)
-        fields["model_id"] = nullable(resolution.modelId)
-        fields["provider"] = nullable(resolution.provider)
-        fields["effective_params"] = jsonOf(resolution.effectiveParams)
-        fields["effective_provider_options"] = jsonOf(resolution.effectiveProviderOptions)
+        fields["deployment_id"] = nullable(useCase.deploymentId)
+        fields["key"] = JsonPrimitive(useCase.key)
+        fields["revision"] = useCase.deploymentRevision?.let { JsonPrimitive(it) } ?: JsonNull
+        fields["kind"] = JsonPrimitive(useCase.kind.wire)
+        fields["prompt"] = nullable(useCase.prompt)
+        fields["prompt_names"] = JsonArray(useCase.promptNames.map { JsonPrimitive(it) })
+        fields["model"] = nullable(useCase.model)
+        fields["model_id"] = nullable(useCase.modelId)
+        fields["provider"] = nullable(useCase.provider)
+        fields["params"] = jsonOf(useCase.params)
+        fields["provider_options"] = jsonOf(useCase.providerOptions)
         fields["prompt_version"] =
-            resolution.promptVersionId?.let { id ->
+            useCase.promptVersionId?.let { id ->
                 buildJsonObject {
                     put("id", id)
-                    put("number", resolution.promptVersionNumber)
+                    put("number", useCase.promptVersionNumber)
                 }
             } ?: JsonNull
-        fields["warnings"] = JsonArray(resolution.warnings.map { JsonPrimitive(it) })
+        fields["warnings"] = JsonArray(useCase.warnings.map { JsonPrimitive(it) })
+        fields["source"] = JsonPrimitive(useCase.source.wire)
 
-        if (resolution.kind == UseCaseKind.CHAT && resolution.messages != null) {
+        if (useCase.kind == UseCaseKind.CHAT && useCase.messageTemplates != null) {
             val messages =
-                if (hasVariables) resolution.render(variables).messages!! else resolution.messages!!
+                if (hasVariables) useCase.messages(variables) else useCase.messageTemplates!!
             fields["messages"] = JsonArray(messages.map { messageJson(it) })
         }
-        if (resolution.kind == UseCaseKind.TEXT && resolution.textTemplate != null) {
-            val text = if (hasVariables) resolution.render(variables).text!! else resolution.textTemplate!!
+        if (useCase.kind == UseCaseKind.TEXT && useCase.textTemplate != null) {
+            val text = if (hasVariables) useCase.text(variables) else useCase.textTemplate!!
             fields["text"] = JsonPrimitive(text)
         }
         return JsonObject(fields)

@@ -5,9 +5,9 @@ import dev.polimo.prompton.HttpResponse
 import dev.polimo.prompton.HttpTransport
 import dev.polimo.prompton.PromptOnConfig
 import dev.polimo.prompton.PromptOnMode
-import dev.polimo.prompton.ResolutionSource
-import dev.polimo.prompton.SnapshotDocument
-import dev.polimo.prompton.SnapshotUnavailableException
+import dev.polimo.prompton.UseCaseDocument
+import dev.polimo.prompton.UseCaseDocumentUnavailableException
+import dev.polimo.prompton.UseCaseSource
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
@@ -28,9 +28,9 @@ import kotlin.time.toJavaDuration
 import java.time.Duration as JavaDuration
 
 /**
- * The three snapshot tiers and the rules that keep a generation running when PromptOn is not.
+ * The three use case document tiers and the rules that keep a log running when PromptOn is not.
  *
- * Memory is what every resolve reads. Past the cache TTL a background revalidation refreshes it with
+ * Memory is what every useCase call reads. Past the cache TTL a background revalidation refreshes it with
  * `If-None-Match`; while that is in flight, and if it fails, the previous document keeps serving.
  * On start-up the disk cache and then the bundle fill memory before the first fetch returns, and a
  * document for another environment or project is never used.
@@ -55,7 +55,7 @@ internal class SnapshotManager(
             null
         } else {
             Executors.newSingleThreadScheduledExecutor { runnable ->
-                Thread(runnable, "prompton-snapshot").apply { isDaemon = true }
+                Thread(runnable, "prompton-use-cases").apply { isDaemon = true }
             }
         }
 
@@ -84,12 +84,12 @@ internal class SnapshotManager(
     }
 
     /**
-     * The document every resolve reads.
+     * The document every useCase call reads.
      *
      * With a document in memory this never blocks: past the TTL it starts a background
      * revalidation and returns the document it has. With no document at all — a cold start with an
      * empty disk cache and no bundle — it waits for the start-up fetch, which carries its own short
-     * timeout, and fails with [SnapshotUnavailableException] if that found nothing either.
+     * timeout, and fails with [UseCaseDocumentUnavailableException] if that found nothing either.
      */
     fun entry(): SnapshotEntry {
         current.get()?.let { entry ->
@@ -99,7 +99,7 @@ internal class SnapshotManager(
         awaitStartupFetch()
         current.get()?.let { return it }
         maybeRefresh()
-        throw SnapshotUnavailableException(config.environment)
+        throw UseCaseDocumentUnavailableException(config.environment)
     }
 
     private fun awaitStartupFetch() {
@@ -150,7 +150,7 @@ internal class SnapshotManager(
             config.mode == PromptOnMode.OFFLINE -> loadLocalTiers()
             !remoteEnabled -> Unit
             !force && clock.now().isBefore(until) ->
-                PtnLog.throttled("snapshot-refresh-paused", 60_000) {
+                PtnLog.throttled("use-case-document-refresh-paused", 60_000) {
                     "[PromptOn] refresh skipped: not contacting the server before $until — " +
                         "serving the ${describeSource()} document"
                 }
@@ -161,8 +161,8 @@ internal class SnapshotManager(
     }
 
     fun putDocument(
-        document: SnapshotDocument,
-        source: ResolutionSource,
+        document: UseCaseDocument,
+        source: UseCaseSource,
         etag: String? = null,
     ) {
         val now = clock.now()
@@ -174,13 +174,13 @@ internal class SnapshotManager(
                 source = source,
                 fetchedAt = now,
                 validatedAt = now,
-                staleSince = if (source == ResolutionSource.REMOTE) null else now,
+                staleSince = if (source == UseCaseSource.REMOTE) null else now,
             ),
         )
     }
 
     fun export(path: Path) {
-        val entry = current.get() ?: throw SnapshotUnavailableException(config.environment)
+        val entry = current.get() ?: throw UseCaseDocumentUnavailableException(config.environment)
         SnapshotFiles.write(path, entry.document.toJson(), metaOf(entry))
     }
 
@@ -197,14 +197,14 @@ internal class SnapshotManager(
     private fun loadLocalTiers(): Boolean {
         val candidates =
             listOfNotNull(
-                config.resolvedDiskCachePath?.let { it to ResolutionSource.DISK },
-                config.bundlePath?.let { it to ResolutionSource.BUNDLE },
+                config.resolvedDiskCachePath?.let { it to UseCaseSource.DISK },
+                config.bundlePath?.let { it to UseCaseSource.BUNDLE },
             )
         for ((path, source) in candidates) {
             val entry = SnapshotFiles.read(path, source, config.environment, config.project)
             if (entry != null) {
                 current.set(entry)
-                PtnLog.info("[PromptOn] loaded the snapshot from ${source.wire} ($path), etag=${entry.etag}")
+                PtnLog.info("[PromptOn] loaded the use case document from ${source.wire} ($path), etag=${entry.etag}")
                 return true
             }
         }
@@ -254,9 +254,9 @@ internal class SnapshotManager(
     private fun handleOk(response: HttpResponse): Boolean {
         val document =
             try {
-                SnapshotDocument.parse(response.body)
+                UseCaseDocument.parse(response.body)
             } catch (e: RuntimeException) {
-                recordFailure("undecodable snapshot: ${e.message}", null)
+                recordFailure("undecodable use case document: ${e.message}", null)
                 return false
             }
         if (document.environment != config.environment) {
@@ -274,7 +274,7 @@ internal class SnapshotManager(
             )
             return false
         }
-        document.warnings.forEach { PtnLog.warn("[PromptOn] snapshot decoded with a warning: $it") }
+        document.warnings.forEach { PtnLog.warn("[PromptOn] use case document decoded with a warning: $it") }
 
         val now = clock.now()
         val entry =
@@ -282,7 +282,7 @@ internal class SnapshotManager(
                 document = document,
                 etag = response.header("etag"),
                 lastModified = response.header("last-modified"),
-                source = ResolutionSource.REMOTE,
+                source = UseCaseSource.REMOTE,
                 fetchedAt = now,
                 validatedAt = now,
                 staleSince = null,
@@ -300,7 +300,7 @@ internal class SnapshotManager(
         nextAttemptAt.set(now)
         if (previous == null) return false
         current.set(
-            previous.copy(source = ResolutionSource.REMOTE, validatedAt = now, staleSince = null),
+            previous.copy(source = UseCaseSource.REMOTE, validatedAt = now, staleSince = null),
         )
         return true
     }
@@ -314,8 +314,8 @@ internal class SnapshotManager(
         val now = clock.now()
         nextAttemptAt.set(now.plusMillis(delay.inWholeMilliseconds))
         current.getAndUpdate { entry -> entry?.let { if (it.staleSince == null) it.copy(staleSince = now) else it } }
-        PtnLog.throttled("snapshot-fetch", 60_000) {
-            "[PromptOn] snapshot refresh failed (attempt $attempt): $reason — " +
+        PtnLog.throttled("use-case-document-fetch", 60_000) {
+            "[PromptOn] use case document refresh failed (attempt $attempt): $reason — " +
                 "serving the ${describeSource()} document, next try in ${delay.inWholeSeconds}s"
         }
     }
@@ -323,7 +323,7 @@ internal class SnapshotManager(
     private fun backoff(attempt: Int): Duration = backoffFrom(config.cacheTtl, attempt)
 
     private fun snapshotUrl(): String =
-        "${config.baseUrl}/snapshot?environment=" +
+        "${config.baseUrl}/use-cases?environment=" +
             URLEncoder.encode(config.environment, StandardCharsets.UTF_8)
 
     private fun requestHeaders(etag: String?): Map<String, String> {

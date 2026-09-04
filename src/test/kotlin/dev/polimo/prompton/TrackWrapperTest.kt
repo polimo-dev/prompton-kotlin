@@ -10,7 +10,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /** The convenience wrapper: it times the provider call, logs it, and gets out of the way. */
-class GenerateWrapperTest {
+class TrackWrapperTest {
     private fun prompton(clock: FakeClock = FakeClock()): PromptOn {
         val config =
             PromptOnConfig(
@@ -22,7 +22,7 @@ class GenerateWrapperTest {
                 diskCacheEnabled = false,
             )
         val prompton = PromptOn(config, clock)
-        prompton.putSnapshot(SnapshotFixtures.snapshot(), ResolutionSource.REMOTE)
+        prompton.putUseCaseDocument(SnapshotFixtures.useCaseDocument(), UseCaseSource.REMOTE)
         return prompton
     }
 
@@ -34,10 +34,10 @@ class GenerateWrapperTest {
     @Test
     fun `the block's value is returned unchanged`() {
         prompton().use { prompton ->
-            val resolution = prompton.resolve("greeting")
+            val useCase = prompton.useCase("greeting")
             val answer =
-                prompton.generateBlocking(resolution) { call ->
-                    call.succeeded(ProviderOutcome(content = "Hello, Ada!", finishReason = "stop"))
+                useCase.trackBlocking { call ->
+                    call.result(Result(content = "Hello, Ada!", finishReason = "stop"))
                     listOf("Hello, Ada!")
                 }
             assertEquals(listOf("Hello, Ada!"), answer)
@@ -46,7 +46,7 @@ class GenerateWrapperTest {
             assertEquals("ok", field(record, "status"))
             assertEquals("stop", field(record, "stop_kind"))
             assertEquals("greeting", field(record, "use_case"))
-            assertEquals("remote", field(record, "resolution_source"))
+            assertEquals("remote", field(record, "source"))
             assertEquals("Hello, Ada!", ((record["output"] as JsonObject)["content"] as JsonPrimitive).content)
         }
     }
@@ -55,10 +55,10 @@ class GenerateWrapperTest {
     fun `latency is measured from the clock`() {
         val clock = FakeClock()
         prompton(clock).use { prompton ->
-            val resolution = prompton.resolve("greeting")
-            prompton.generateBlocking(resolution) { call ->
+            val useCase = prompton.useCase("greeting")
+            useCase.trackBlocking { call ->
                 clock.advanceMillis(1_234)
-                call.succeeded(ProviderOutcome(content = "hi"))
+                call.result(Result(content = "hi"))
             }
             assertEquals("1234", field(prompton.capturedRecords().single(), "latency_ms"))
         }
@@ -67,10 +67,10 @@ class GenerateWrapperTest {
     @Test
     fun `an exception is logged as an app error and rethrown unchanged`() {
         prompton().use { prompton ->
-            val resolution = prompton.resolve("greeting")
+            val useCase = prompton.useCase("greeting")
             val thrown =
                 assertFailsWith<IllegalStateException> {
-                    prompton.generateBlocking(resolution) { error("the provider client blew up") }
+                    useCase.trackBlocking { error("the provider client blew up") }
                 }
             assertEquals("the provider client blew up", thrown.message)
 
@@ -86,11 +86,11 @@ class GenerateWrapperTest {
     @Test
     fun `a recorded failure keeps the usage and output that came with it`() {
         prompton().use { prompton ->
-            val resolution = prompton.resolve("greeting")
-            prompton.generateBlocking(resolution) { call ->
+            val useCase = prompton.useCase("greeting")
+            useCase.trackBlocking { call ->
                 call.failed(
-                    GenerationError(ErrorKind.PARSE, message = "unexpected end of JSON input"),
-                    ProviderOutcome(
+                    LogError(ErrorKind.PARSE, message = "unexpected end of JSON input"),
+                    Result(
                         content = "{\"greeting\":",
                         finishReason = "length",
                         usage = Usage(inputTokens = 38, outputTokens = 512),
@@ -107,10 +107,10 @@ class GenerateWrapperTest {
     }
 
     @Test
-    fun `the resolution's pin is recorded as evidence`() {
+    fun `the useCase's pin is recorded as evidence`() {
         prompton().use { prompton ->
-            val resolution = prompton.resolve("greeting")
-            prompton.generateBlocking(resolution) { call -> call.succeeded(ProviderOutcome(content = "hi")) }
+            val useCase = prompton.useCase("greeting")
+            useCase.trackBlocking { call -> call.result(Result(content = "hi")) }
 
             val record = prompton.capturedRecords().single()
             assertEquals("0198f2a1-0000-7000-8000-00000000d001", field(record, "deployment_id"))
@@ -124,13 +124,71 @@ class GenerateWrapperTest {
     }
 
     @Test
+    fun `a named prompt's pin is recorded as evidence`() {
+        prompton().use { prompton ->
+            val useCase = prompton.useCase("greeting", prompt = "ko")
+            useCase.trackBlocking { call -> call.result(Result(content = "안녕하세요")) }
+
+            val record = prompton.capturedRecords().single()
+            assertEquals("ko", field(record, "prompt"))
+            assertEquals("0198f2a1-0000-7000-8000-00000000a002", field(record, "prompt_version_id"))
+        }
+    }
+
+    @Test
+    fun `a named prompt rendered from the base use case is recorded as evidence`() {
+        prompton().use { prompton ->
+            val useCase = prompton.useCase("greeting")
+            val messages = useCase.messages(mapOf("name" to "Ada"), prompt = "ko")
+            useCase.trackBlocking(TrackMeta(variables = mapOf("name" to "Ada"), inputMessages = messages)) { call ->
+                call.result(Result(content = "안녕하세요"))
+            }
+
+            val record = prompton.capturedRecords().single()
+            assertEquals("ko", field(record, "prompt"))
+            assertEquals("0198f2a1-0000-7000-8000-00000000a002", field(record, "prompt_version_id"))
+        }
+    }
+
+    @Test
+    fun `a named prompt render selection is cleared after one track`() {
+        prompton().use { prompton ->
+            val useCase = prompton.useCase("greeting")
+            val messages = useCase.messages(mapOf("name" to "Ada"), prompt = "ko")
+            useCase.trackBlocking(TrackMeta(inputMessages = messages)) { call ->
+                call.result(Result(content = "안녕하세요"))
+            }
+            useCase.trackBlocking { call -> call.result(Result(content = "Hello again")) }
+
+            val records = prompton.capturedRecords()
+            assertEquals("ko", field(records[0], "prompt"))
+            assertEquals("default", field(records[1], "prompt"))
+        }
+    }
+
+    @Test
+    fun `a failed named prompt render does not leak into the next track`() {
+        prompton().use { prompton ->
+            val useCase = prompton.useCase("greeting")
+            assertFailsWith<MissingVariableException> {
+                useCase.messages(prompt = "ko")
+            }
+            useCase.trackBlocking { call -> call.result(Result(content = "Hello")) }
+
+            val record = prompton.capturedRecords().single()
+            assertEquals("default", field(record, "prompt"))
+            assertEquals("0198f2a1-0000-7000-8000-00000000a001", field(record, "prompt_version_id"))
+        }
+    }
+
+    @Test
     fun `the suspending wrapper behaves like the blocking one`() =
         runBlocking {
             prompton().use { prompton ->
-                val resolution = prompton.resolve("greeting")
+                val useCase = prompton.useCase("greeting")
                 val answer =
-                    prompton.generate(resolution, GenerationMeta(traceId = "job:1")) { call ->
-                        call.succeeded(ProviderOutcome(content = "Hello", finishReason = "stop"))
+                    useCase.track(TrackMeta(traceId = "job:1")) { call ->
+                        call.result(Result(content = "Hello", finishReason = "stop"))
                         "Hello"
                     }
                 assertEquals("Hello", answer)
@@ -157,10 +215,10 @@ class GenerateWrapperTest {
                 prompton.log(mapOf("use_case" to "greeting", "status" to "ok", "started_at" to "2026-09-04T09:00:00Z"))
             }
             assertFailsWith<IllegalArgumentException> {
-                GenerationRecord(
+                LogRecord(
                     useCase = " ",
                     model = "m",
-                    status = GenerationStatus.OK,
+                    status = LogStatus.OK,
                     startedAt = java.time.Instant.now(),
                 )
             }
@@ -176,5 +234,42 @@ class GenerateWrapperTest {
             assertTrue(field(record, "started_at")!!.endsWith("Z"))
             assertEquals("prompton-kotlin", ((record["sdk"] as JsonObject)["name"] as JsonPrimitive).content)
         }
+    }
+
+    @Test
+    fun `provider helpers extract common OpenAI and Anthropic shapes`() {
+        val openai =
+            Result.fromOpenAI(
+                mapOf(
+                    "model" to "gpt-4o-mini",
+                    "choices" to
+                        listOf(
+                            mapOf(
+                                "finish_reason" to "stop",
+                                "message" to mapOf("content" to "Hello"),
+                            ),
+                        ),
+                    "usage" to mapOf("prompt_tokens" to 3, "completion_tokens" to 2),
+                ),
+            )
+        assertEquals("Hello", openai.content)
+        assertEquals("stop", openai.finishReason)
+        assertEquals(3L, openai.usage?.inputTokens)
+        assertEquals(2L, openai.usage?.outputTokens)
+        assertEquals("gpt-4o-mini", openai.modelUsed)
+
+        val anthropic =
+            Result.fromAnthropic(
+                mapOf(
+                    "model" to "claude-sonnet-4-5",
+                    "stop_reason" to "end_turn",
+                    "content" to listOf(mapOf("type" to "text", "text" to "Hi")),
+                    "usage" to mapOf("input_tokens" to 4, "output_tokens" to 1),
+                ),
+            )
+        assertEquals("Hi", anthropic.content)
+        assertEquals("end_turn", anthropic.finishReason)
+        assertEquals(4L, anthropic.usage?.inputTokens)
+        assertEquals(1L, anthropic.usage?.outputTokens)
     }
 }

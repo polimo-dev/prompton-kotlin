@@ -17,10 +17,10 @@ class TruncationConformanceTest {
         var executed = 0
         for (case in Conformance.cases("truncation")) {
             val name = Conformance.string(case, "name")!!
-            val record = case["generation"] as JsonObject
+            val record = case["log"] as JsonObject
             val policyJson = case["policy"] as JsonObject
             val configJson = case["config"] as? JsonObject
-            val expected = (case["expect"] as JsonObject)["generation"] as JsonObject
+            val expected = (case["expect"] as JsonObject)["log"] as JsonObject
 
             val policy =
                 PayloadPolicy(

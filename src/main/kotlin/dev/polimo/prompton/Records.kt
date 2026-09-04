@@ -10,7 +10,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import java.time.Instant
 
 /** Whether the provider call succeeded. */
-public enum class GenerationStatus {
+public enum class LogStatus {
     OK,
     ERROR,
     ;
@@ -57,7 +57,7 @@ public enum class CostSource {
 }
 
 /** The failure attached to a record with status `error`. */
-public data class GenerationError
+public data class LogError
     @JvmOverloads
     constructor(
         val kind: ErrorKind,
@@ -79,7 +79,7 @@ public data class Usage
     )
 
 /** What went into the provider call. */
-public data class GenerationInput
+public data class LogInput
     @JvmOverloads
     constructor(
         val variables: Map<String, Any?>? = null,
@@ -90,7 +90,7 @@ public data class GenerationInput
     }
 
 /** What came back. */
-public data class GenerationOutput
+public data class LogOutput
     @JvmOverloads
     constructor(
         val content: String? = null,
@@ -111,14 +111,14 @@ public data class SdkInfo(
 
 /**
  * One monitoring log: what the app asked the provider for, what came back, and which pin produced
- * it. `POST /api/v1/generations` takes these in batches of at most 200.
+ * it. `POST /api/v1/logs` takes these in batches of at most 200.
  */
-public data class GenerationRecord
+public data class LogRecord
     @JvmOverloads
     constructor(
         val useCase: String,
         val model: String,
-        val status: GenerationStatus,
+        val status: LogStatus,
         val startedAt: Instant,
         /** Filled with a fresh UUIDv7 when absent. It is the idempotency key. */
         val id: String? = null,
@@ -128,16 +128,16 @@ public data class GenerationRecord
         val prompt: String? = null,
         val promptVersionId: String? = null,
         val modelId: String? = null,
-        val resolutionSource: ResolutionSource? = null,
+        val source: UseCaseSource? = null,
         val provider: String? = null,
         val modelUsed: String? = null,
         val upstreamProvider: String? = null,
         val params: Map<String, Any?>? = null,
-        val input: GenerationInput? = null,
-        val output: GenerationOutput? = null,
+        val input: LogInput? = null,
+        val output: LogOutput? = null,
         val finishReason: String? = null,
         val stopKind: StopKind? = null,
-        val error: GenerationError? = null,
+        val error: LogError? = null,
         val usage: Usage? = null,
         val latencyMs: Long? = null,
         val traceId: String? = null,
@@ -166,7 +166,7 @@ public data class GenerationRecord
             put(fields, "prompt", prompt)
             put(fields, "prompt_version_id", promptVersionId)
             put(fields, "model_id", modelId)
-            put(fields, "resolution_source", resolutionSource?.wire)
+            put(fields, "source", source?.wire)
             put(fields, "provider", provider)
             put(fields, "model_used", modelUsed)
             put(fields, "upstream_provider", upstreamProvider)
@@ -195,7 +195,7 @@ public data class GenerationRecord
             if (value != null) fields[key] = JsonPrimitive(value)
         }
 
-        private fun inputJson(input: GenerationInput): JsonObject {
+        private fun inputJson(input: LogInput): JsonObject {
             val fields = LinkedHashMap<String, JsonElement>()
             input.variables?.let { fields["variables"] = Ptn.toObject(it) }
             input.messages?.let { messages ->
@@ -205,14 +205,14 @@ public data class GenerationRecord
             return JsonObject(fields)
         }
 
-        private fun outputJson(output: GenerationOutput): JsonObject {
+        private fun outputJson(output: LogOutput): JsonObject {
             val fields = LinkedHashMap<String, JsonElement>()
             output.content?.let { fields["content"] = JsonPrimitive(it) }
             output.toolCalls?.let { calls -> fields["tool_calls"] = JsonArray(calls.map { Ptn.toElement(it) }) }
             return JsonObject(fields)
         }
 
-        private fun errorJson(error: GenerationError): JsonObject {
+        private fun errorJson(error: LogError): JsonObject {
             val fields = LinkedHashMap<String, JsonElement>()
             fields["kind"] = JsonPrimitive(error.kind.wire)
             error.status?.let { fields["status"] = JsonPrimitive(it) }
@@ -249,7 +249,7 @@ public data class GenerationRecord
     }
 
 /** What the provider call produced, as the wrapper records it. */
-public data class ProviderOutcome
+public data class Result
     @JvmOverloads
     constructor(
         val content: String? = null,
@@ -262,10 +262,97 @@ public data class ProviderOutcome
         val upstreamProvider: String? = null,
         /** Whether the call was billed to your own provider key; stored under `metadata.is_byok`. */
         val isByok: Boolean? = null,
-    )
+    ) {
+        public companion object {
+            @JvmStatic
+            public fun fromOpenAI(answer: Any?): Result =
+                Result(
+                    content = firstString(answer, "choices.0.message.content", "choices.0.text", "output_text"),
+                    finishReason = firstString(answer, "choices.0.finish_reason", "finish_reason"),
+                    usage =
+                        Usage(
+                            inputTokens = firstLong(answer, "usage.prompt_tokens", "usage.input_tokens"),
+                            outputTokens = firstLong(answer, "usage.completion_tokens", "usage.output_tokens"),
+                            costSource = CostSource.PROVIDER,
+                            raw = nativeMap(read(answer, "usage")),
+                        ),
+                    modelUsed = firstString(answer, "model"),
+                )
+
+            @JvmStatic
+            public fun fromAnthropic(answer: Any?): Result =
+                Result(
+                    content = anthropicContent(answer),
+                    finishReason = firstString(answer, "stop_reason", "finish_reason"),
+                    usage =
+                        Usage(
+                            inputTokens = firstLong(answer, "usage.input_tokens"),
+                            outputTokens = firstLong(answer, "usage.output_tokens"),
+                            costSource = CostSource.PROVIDER,
+                            raw = nativeMap(read(answer, "usage")),
+                        ),
+                    modelUsed = firstString(answer, "model"),
+                    upstreamProvider = "anthropic",
+                )
+
+            private fun firstString(
+                value: Any?,
+                vararg paths: String,
+            ): String? = paths.firstNotNullOfOrNull { read(value, it)?.toString() }
+
+            private fun firstLong(
+                value: Any?,
+                vararg paths: String,
+            ): Long? = paths.firstNotNullOfOrNull { (read(value, it) as? Number)?.toLong() }
+
+            private fun anthropicContent(answer: Any?): String? {
+                val content = read(answer, "content")
+                if (content is List<*>) {
+                    return content.mapNotNull { read(it, "text")?.toString() }.joinToString("").ifBlank { null }
+                }
+                return content?.toString()
+            }
+
+            @Suppress("UNCHECKED_CAST")
+            private fun nativeMap(value: Any?): Map<String, Any?>? = value as? Map<String, Any?>
+
+            private fun read(
+                value: Any?,
+                path: String,
+            ): Any? {
+                var current = value
+                for (segment in path.split('.')) {
+                    if (current == null) return null
+                    val index = segment.toIntOrNull()
+                    current =
+                        when {
+                            index != null && current is List<*> -> current.getOrNull(index)
+                            current is Map<*, *> -> current[segment]
+                            else -> property(current, segment)
+                        }
+                }
+                return current
+            }
+
+            private fun property(
+                value: Any,
+                name: String,
+            ): Any? {
+                val capitalized = name.replaceFirstChar { it.titlecase() }
+                val methods = listOf(name, "get$capitalized", "is$capitalized")
+                for (methodName in methods) {
+                    val method = value.javaClass.methods.firstOrNull { it.name == methodName && it.parameterCount == 0 }
+                    if (method != null) return runCatching { method.invoke(value) }.getOrNull()
+                }
+                return value.javaClass.fields.firstOrNull { it.name == name }?.let { field ->
+                    runCatching { field.get(value) }.getOrNull()
+                }
+            }
+        }
+    }
 
 /** Everything the wrapper cannot work out for itself. */
-public data class GenerationMeta
+public data class TrackMeta
     @JvmOverloads
     constructor(
         /** Pre-issue an id when the app wants to store it before the call. */
@@ -277,35 +364,35 @@ public data class GenerationMeta
         val endUserRef: String? = null,
         val traceId: String? = null,
         val sequence: Int? = null,
-        /** Free-form tags kept for filtering in the log; resolution never looks at them. */
+        /** Free-form tags kept for filtering in the log; use case selection never looks at them. */
         val context: Map<String, Any?> = emptyMap(),
         val metadata: Map<String, Any?> = emptyMap(),
-        /** The params actually sent, layered over the resolution's effective params. */
+        /** The params actually sent, layered over the use case's params. */
         val params: Map<String, Any?>? = null,
     )
 
 /**
- * The recorder handed to the block of [PromptOn.generate].
+ * The recorder handed to the block of [UseCase.track].
  *
- * Set [outcome] with what the provider returned and, when the call failed in a way that is not an
+ * Set [result] with what the provider returned and, when the call failed in a way that is not an
  * exception, [error]. Anything the block throws is logged as `app` and rethrown unchanged.
  */
-public class GenerationCall internal constructor() {
-    public var outcome: ProviderOutcome? = null
-    public var error: GenerationError? = null
+public class TrackCall internal constructor() {
+    public var result: Result? = null
+    public var error: LogError? = null
 
     /** Records a successful provider call. */
-    public fun succeeded(outcome: ProviderOutcome) {
-        this.outcome = outcome
+    public fun result(result: Result) {
+        this.result = result
     }
 
     /** Records a failure, optionally keeping the usage and output that came with it. */
     @JvmOverloads
     public fun failed(
-        error: GenerationError,
-        outcome: ProviderOutcome? = null,
+        error: LogError,
+        result: Result? = null,
     ) {
         this.error = error
-        if (outcome != null) this.outcome = outcome
+        if (result != null) this.result = result
     }
 }

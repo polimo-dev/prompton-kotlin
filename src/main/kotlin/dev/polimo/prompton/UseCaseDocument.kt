@@ -3,23 +3,24 @@ package dev.polimo.prompton
 import dev.polimo.prompton.internal.Ptn
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
-/** A snapshot document whose `schema_version` this SDK cannot read. */
+/** A use case document whose `schema_version` this SDK cannot read. */
 public class UnsupportedSchemaVersionException(
     public val schemaVersion: Int,
-) : PromptOnException("unsupported snapshot schema_version $schemaVersion; this SDK reads version 3")
+) : PromptOnException("unsupported use case document schema_version $schemaVersion; this SDK reads version 4")
 
 /**
- * A decoded `GET /snapshot` document (schema v3): everything live in one environment.
+ * A decoded `GET /use-cases` document (schema v4): everything live in one environment.
  *
- * Decoding is lenient about additions — a version above 3 decodes the fields this SDK knows and
- * records a warning — and strict about regressions: v1 and v2 documents are refused outright.
+ * Decoding is lenient about additions to schema v4, and strict about the schema itself: only
+ * `schema_version: 4` is accepted.
  */
-public class SnapshotDocument internal constructor(
+public class UseCaseDocument internal constructor(
     public val schemaVersion: Int,
     public val project: String?,
     public val environment: String?,
-    public val useCases: Map<String, UseCase>,
+    public val useCases: Map<String, UseCaseEntry>,
     public val deployments: Map<String, Deployment>,
     public val promptVersions: Map<String, PromptVersion>,
     public val models: Map<String, ModelEntry>,
@@ -39,32 +40,24 @@ public class SnapshotDocument internal constructor(
     public fun toJson(): String = source
 
     public companion object {
-        public const val SCHEMA_VERSION: Int = 3
+        public const val SCHEMA_VERSION: Int = 4
 
-        /** Decodes a `GET /snapshot` body. */
-        public fun parse(json: String): SnapshotDocument = decode(Ptn.parseObject(json), json)
+        /** Decodes a `GET /use-cases` body. */
+        public fun parse(json: String): UseCaseDocument = decode(Ptn.parseObject(json), json)
 
         internal fun decode(
             root: JsonObject,
             source: String,
-        ): SnapshotDocument {
+        ): UseCaseDocument {
             val warnings = mutableListOf<String>()
-            val version = Ptn.asInt(root["schema_version"]) ?: Ptn.asInt(root["version"])
             val schemaVersion =
-                when {
-                    version == null -> throw PromptOnException("snapshot schema_version is required")
-                    version == SCHEMA_VERSION -> version
-                    version > SCHEMA_VERSION -> {
-                        warnings += "unknown_schema_version: $version"
-                        version
-                    }
-
-                    else -> throw UnsupportedSchemaVersionException(version)
-                }
+                schemaVersionOf(root["schema_version"])
+                    ?: throw PromptOnException("use case document schema_version must be integer 4")
+            if (schemaVersion != SCHEMA_VERSION) throw UnsupportedSchemaVersionException(schemaVersion)
 
             val useCasesRaw =
                 Ptn.asObject(root["use_cases"])
-                    ?: throw PromptOnException("snapshot use_cases is required")
+                    ?: throw PromptOnException("use case document use_cases is required")
 
             val useCases =
                 useCasesRaw.entries.associate { (key, value) ->
@@ -94,7 +87,7 @@ public class SnapshotDocument internal constructor(
                     ?.toMap()
                     .orEmpty()
 
-            return SnapshotDocument(
+            return UseCaseDocument(
                 schemaVersion = schemaVersion,
                 project = Ptn.asString(root["project"]),
                 environment = Ptn.asString(root["environment"]),
@@ -107,16 +100,21 @@ public class SnapshotDocument internal constructor(
             )
         }
 
+        private fun schemaVersionOf(value: JsonElement?): Int? {
+            if (value !is JsonPrimitive || value.isString) return null
+            return value.content.toIntOrNull()
+        }
+
         private fun decodeUseCase(
             key: String,
             raw: JsonObject?,
             warnings: MutableList<String>,
-        ): UseCase {
+        ): UseCaseEntry {
             val kindText = Ptn.asString(raw?.get("kind"))
             if (kindText != null && UseCaseKind.entries.none { it.wire == kindText }) {
                 warnings += "unknown_kind: $kindText"
             }
-            return UseCase(
+            return UseCaseEntry(
                 id = Ptn.asString(raw?.get("id")),
                 key = key,
                 kind = UseCaseKind.fromWire(kindText),
