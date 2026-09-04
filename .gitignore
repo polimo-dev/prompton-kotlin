@@ -1,0 +1,10 @@
+.gradle/
+build/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+!src/**/build/
+.idea/
+*.iml
+.DS_Store
+local.properties
+out/

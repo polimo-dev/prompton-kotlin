@@ -1,0 +1,80 @@
+{
+  "deployments": {
+    "greeting": {
+      "id": "01a069cb-0814-77f3-a866-5433348ac431",
+      "model_id": "01a069cb-07c2-7e11-9011-85af7e778f96",
+      "params": {
+        "temperature": 0.2
+      },
+      "prompt_pins": {
+        "default": "01a069cb-07f1-7c90-b3a6-cdf8d2d7ed48"
+      },
+      "provider_options": {},
+      "revision": 1
+    }
+  },
+  "environment": "production",
+  "models": {
+    "01a069cb-07c2-7e11-9011-85af7e778f96": {
+      "capabilities": [
+        "tools",
+        "streaming"
+      ],
+      "display_name": "GPT-4o mini",
+      "id": "01a069cb-07c2-7e11-9011-85af7e778f96",
+      "metadata": {},
+      "model_id": "openai/gpt-4o-mini",
+      "provider": "openrouter",
+      "provider_options": {
+        "only": [
+          "OpenAI"
+        ]
+      },
+      "status": "active"
+    }
+  },
+  "project": "sdkfixture",
+  "prompt_versions": {
+    "01a069cb-07f1-7c90-b3a6-cdf8d2d7ed48": {
+      "engine": "liquid",
+      "id": "01a069cb-07f1-7c90-b3a6-cdf8d2d7ed48",
+      "messages": [
+        {
+          "content": "You are a friendly greeter. Answer in one short line.",
+          "role": "system"
+        },
+        {
+          "content": "Say hello to {{ name }}.",
+          "role": "user"
+        }
+      ],
+      "number": 1,
+      "prompt_id": "01a069cb-07d1-7d0a-9b88-742c6cad9a6b",
+      "text_template": null
+    }
+  },
+  "schema_version": 3,
+  "use_cases": {
+    "greeting": {
+      "default_params": {
+        "max_tokens": 256
+      },
+      "id": "01a069cb-07cb-74c2-87dc-10a06efdc4fb",
+      "input_schema": [
+        {
+          "name": "name",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "kind": "chat",
+      "payload_policy": {
+        "encrypt": true,
+        "max_bytes": 262144,
+        "mode": "full",
+        "retention_days": 30,
+        "sample_rate": 1.0
+      }
+    }
+  }
+}
