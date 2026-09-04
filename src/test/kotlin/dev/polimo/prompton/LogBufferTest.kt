@@ -231,6 +231,53 @@ class LogBufferTest {
     }
 
     @Test
+    fun `a flush inside a rate-limit pause keeps the records instead of losing them`() {
+        val transport = transport { HttpResponse(429, mapOf("retry-after" to "120"), "") }
+        val clock = FakeClock()
+        PromptOn(config(transport), clock).use { prompton ->
+            repeat(3) { prompton.log(record(it)) }
+            val first = prompton.flushBlocking()
+            assertEquals(1, transport.postCount())
+            assertEquals(3, first.remaining, "the batch is still queued")
+
+            val second = prompton.flushBlocking()
+            assertEquals(1, transport.postCount(), "no request inside the Retry-After window")
+            assertEquals(3, second.remaining)
+            assertEquals(0L, prompton.logStats().dropped, "held is not dropped")
+            assertEquals(3, prompton.logStats().queued)
+        }
+    }
+
+    @Test
+    fun `close makes one last attempt and counts what it could not send`() {
+        val transport = transport { HttpResponse(429, mapOf("retry-after" to "120"), "") }
+        val clock = FakeClock()
+        val prompton = PromptOn(config(transport), clock)
+        repeat(3) { prompton.log(record(it)) }
+        prompton.flushBlocking()
+        assertEquals(1, transport.postCount())
+        assertEquals(3, prompton.logStats().queued)
+
+        prompton.close()
+
+        assertEquals(2, transport.postCount(), "shutdown tries once more even inside the pause")
+        assertEquals(3L, prompton.logStats().dropped, "what could not be sent is counted, not silent")
+        assertEquals(0, prompton.logStats().queued)
+    }
+
+    @Test
+    fun `a record logged after close is dropped, not thrown at the caller`() {
+        val transport = transport { accepted(1) }
+        val prompton = PromptOn(config(transport), FakeClock())
+        prompton.close()
+
+        prompton.log(record(1))
+
+        assertEquals(1L, prompton.logStats().dropped, "a late record is counted, not raised")
+        assertEquals(0, prompton.logStats().queued)
+    }
+
+    @Test
     fun `a 5xx retries with exponential backoff`() {
         val attempts = AtomicInteger()
         val transport =

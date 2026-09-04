@@ -1,19 +1,19 @@
 package dev.polimo.prompton
 
-import dev.polimo.prompton.internal.BatchOutcome
+import dev.polimo.prompton.internal.GenerationsClient
 import dev.polimo.prompton.internal.LogBuffer
 import dev.polimo.prompton.internal.Payload
 import dev.polimo.prompton.internal.PayloadOptions
 import dev.polimo.prompton.internal.PromptOnClock
+import dev.polimo.prompton.internal.PromptOnLifecycle
+import dev.polimo.prompton.internal.PromptOnResources
 import dev.polimo.prompton.internal.Ptn
 import dev.polimo.prompton.internal.PtnLog
 import dev.polimo.prompton.internal.SnapshotManager
+import dev.polimo.prompton.internal.wireHeaders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 import java.time.Instant
 import java.util.Collections
@@ -108,27 +108,29 @@ public class PromptOn internal constructor(
 
     private val snapshots = SnapshotManager(config, transport, clock)
 
+    private val generations = GenerationsClient(config, transport)
+
     private val buffer: LogBuffer? =
-        if (config.mode == PromptOnMode.TEST) {
-            null
-        } else {
-            LogBuffer(config, clock) { environment, records -> postGenerations(environment, records) }
-        }
+        if (config.mode == PromptOnMode.TEST) null else LogBuffer(config, clock, generations::post)
 
     private val captured: MutableList<JsonObject> = Collections.synchronizedList(mutableListOf())
     private val resolveCache = ConcurrentHashMap<String, Pair<Instant, ServerResolution>>()
-    private val shutdownHook: Thread?
+    private val resolveNextAttempt = ConcurrentHashMap<String, Instant>()
+    private val resolveFailures = ConcurrentHashMap<String, Int>()
+
+    private val lifecycle: PromptOnLifecycle.Registration
 
     init {
         snapshots.start()
-        shutdownHook =
-            if (config.mode == PromptOnMode.LIVE) {
-                Thread({ runCatching { buffer?.flush(5.seconds) } }, "prompton-shutdown").also {
-                    runCatching { Runtime.getRuntime().addShutdownHook(it) }
-                }
-            } else {
-                null
-            }
+        // One process-wide shutdown hook flushes whatever is still alive; the cleaner releases the
+        // threads of an instance the app dropped without closing it.
+        lifecycle =
+            PromptOnLifecycle.register(
+                owner = this,
+                resources = PromptOnResources(snapshots, buffer, transport),
+                flushAtShutdown = config.mode == PromptOnMode.LIVE,
+                ownsThreads = config.mode != PromptOnMode.TEST,
+            )
     }
 
     // -------------------------------------------------------------------
@@ -183,11 +185,21 @@ public class PromptOn internal constructor(
         )
     }
 
-    /** Fetches the snapshot once, now, and waits for it. Returns whether a document is in memory. */
-    public fun refreshBlocking(): Boolean = snapshots.refreshNow()
+    /**
+     * Fetches the snapshot once, now, and waits for it. Returns whether a document is in memory
+     * afterwards — a refresh that failed while the cached document keeps serving still returns true.
+     *
+     * While PromptOn is rate-limiting or a backoff is running this returns without calling the
+     * server — the same window the poller obeys — so a health check on a timer cannot hammer a
+     * server that asked for silence. Pass `force = true` to fetch anyway.
+     */
+    @JvmOverloads
+    public fun refreshBlocking(force: Boolean = false): Boolean = snapshots.refreshNow(force)
 
     /** Suspending [refreshBlocking]. */
-    public suspend fun refresh(): Boolean = withContext(Dispatchers.IO) { snapshots.refreshNow() }
+    @JvmOverloads
+    public suspend fun refresh(force: Boolean = false): Boolean =
+        withContext(Dispatchers.IO) { snapshots.refreshNow(force) }
 
     /** Writes the current document to [path], for committing as a bundle. */
     public fun exportSnapshot(path: Path) {
@@ -360,10 +372,7 @@ public class PromptOn internal constructor(
     }
 
     override fun close() {
-        shutdownHook?.let { runCatching { Runtime.getRuntime().removeShutdownHook(it) } }
-        buffer?.close()
-        snapshots.close()
-        transport?.close()
+        lifecycle.closeNow()
     }
 
     // -------------------------------------------------------------------
@@ -494,77 +503,89 @@ public class PromptOn internal constructor(
                 "${!config.apiKey.isNullOrBlank()})",
         )
 
-    private fun headers(json: Boolean): Map<String, String> {
-        val headers = LinkedHashMap<String, String>()
-        headers["accept"] = "application/json"
-        headers["user-agent"] = config.userAgent
-        if (json) headers["content-type"] = "application/json"
-        config.apiKey?.let { headers["authorization"] = "Bearer $it" }
-        return headers
-    }
+    private fun headers(json: Boolean): Map<String, String> = config.wireHeaders(json)
 
-    private fun postGenerations(
-        environment: String,
-        records: List<JsonObject>,
-    ): BatchOutcome {
-        val body = Ptn.canonicalJson(JsonObject(mapOf("generations" to JsonArray(records))))
-        val url = "${config.baseUrl}/generations?environment=${encode(environment)}"
-        val response = requireTransport().execute(HttpRequest("POST", url, headers(json = true), body))
-        return when {
-            response.status in 200..299 -> {
-                val parsed = runCatching { Ptn.parseObject(response.body) }.getOrNull()
-                BatchOutcome.Accepted(
-                    accepted = Ptn.asInt(parsed?.get("accepted")) ?: 0,
-                    duplicates = Ptn.asInt(parsed?.get("duplicates")) ?: 0,
-                    rejected = Ptn.asArray(parsed?.get("rejected"))?.mapNotNull { Ptn.asObject(it) }.orEmpty(),
-                )
-            }
-
-            response.status == 413 -> BatchOutcome.TooLarge
-            response.status == 429 ->
-                BatchOutcome.Retry(SnapshotManager.retryAfterOf(response), "rate limited (429)")
-
-            response.status >= 500 ->
-                BatchOutcome.Retry(SnapshotManager.retryAfterOf(response), "HTTP ${response.status}")
-
-            else -> BatchOutcome.Rejected(response.status, SnapshotManager.errorMessageOf(response))
-        }
-    }
-
+    /**
+     * The cached `/resolve` answer, refreshed at most once per cache TTL and never while the server
+     * is asking for silence.
+     *
+     * A `429`, a `5xx` or an unreachable server keeps serving the cached answer *and* starts a
+     * window — `Retry-After`, else exponential backoff x2 from the TTL up to five minutes — during
+     * which the SDK does not call `/resolve` again for this key. Without that, every caller past the
+     * TTL would issue another request at a control plane that is already rate-limiting.
+     */
     private fun serverResolution(
         useCase: String,
         prompt: String?,
         environment: String?,
     ): ServerResolution {
         val key = "${environment ?: config.environment}|$useCase|${prompt ?: Resolver.DEFAULT_PROMPT}"
-        val cached = resolveCache[key]
         val now = clock.now()
-        if (cached != null &&
+        val entry = resolveCache[key]
+        if (entry != null &&
             java.time.Duration
-                .between(cached.first, now) < config.cacheTtl.toJavaDuration()
+                .between(entry.first, now) < config.cacheTtl.toJavaDuration()
         ) {
-            return cached.second
+            return entry.second
         }
-        return try {
-            postResolve(useCase, prompt, environment, null).also { resolveCache[key] = now to it }
-        } catch (e: PromptOnApiException) {
-            if (cached != null && (e.status == 429 || e.status >= 500)) {
-                PtnLog.throttled("resolve-degraded", 60_000) {
-                    "[PromptOn] /resolve answered ${e.status}; serving the cached answer for $useCase"
-                }
-                cached.second
-            } else {
+        val cached = entry?.second
+        val blockedUntil = resolveNextAttempt[key]
+        if (blockedUntil != null && now.isBefore(blockedUntil)) {
+            cached?.let { return it }
+            throw PromptOnException(
+                "PromptOn answered /resolve with an error for '$useCase' and nothing is cached: " +
+                    "not calling again before $blockedUntil",
+            )
+        }
+
+        val response =
+            try {
+                postResolveResponse(useCase, prompt, environment, null)
+            } catch (e: Exception) {
+                pauseResolve(key, now, cached, null, "/resolve is unreachable (${e.message})")
+                cached?.let { return it }
                 throw e
             }
-        } catch (e: Exception) {
-            if (cached != null) {
-                PtnLog.throttled("resolve-unreachable", 60_000) {
-                    "[PromptOn] /resolve is unreachable (${e.message}); serving the cached answer for $useCase"
-                }
-                cached.second
-            } else {
-                throw e
-            }
+
+        if (response.status == 200) {
+            val answer = parseServerResolution(Ptn.parseObject(response.body))
+            resolveCache[key] = now to answer
+            resolveNextAttempt.remove(key)
+            resolveFailures.remove(key)
+            return answer
+        }
+        if (response.status == 429 || response.status >= 500) {
+            pauseResolve(
+                key,
+                now,
+                cached,
+                SnapshotManager.retryAfterOf(response),
+                "/resolve answered ${response.status}",
+            )
+            cached?.let { return it }
+        }
+        throw resolveError(useCase, response)
+    }
+
+    /**
+     * Stops calling `/resolve` for this key until the window has passed, and keeps whatever was
+     * cached alive for at least that long. Only `429`, `5xx` and transport failures land here — a
+     * `4xx` is about the request, not about load, and repeating it is the caller's business.
+     */
+    private fun pauseResolve(
+        key: String,
+        now: Instant,
+        cached: ServerResolution?,
+        retryAfter: Duration?,
+        reason: String,
+    ) {
+        val attempt = resolveFailures.merge(key, 1, Int::plus) ?: 1
+        val delay = retryAfter ?: SnapshotManager.backoffFrom(config.cacheTtl, attempt)
+        if (cached != null) resolveCache[key] = now to cached
+        resolveNextAttempt[key] = now.plusMillis(delay.inWholeMilliseconds)
+        PtnLog.throttled("resolve-degraded", 60_000) {
+            "[PromptOn] $reason — not calling it again for ${delay.inWholeSeconds}s" +
+                if (cached != null) "; the cached answer keeps serving" else ""
         }
     }
 
@@ -574,23 +595,31 @@ public class PromptOn internal constructor(
         environment: String?,
         variables: Map<String, Any?>?,
     ): ServerResolution {
+        val response = postResolveResponse(useCase, prompt, environment, variables)
+        if (response.status != 200) throw resolveError(useCase, response)
+        return parseServerResolution(Ptn.parseObject(response.body))
+    }
+
+    private fun postResolveResponse(
+        useCase: String,
+        prompt: String?,
+        environment: String?,
+        variables: Map<String, Any?>?,
+    ): HttpResponse {
         val request = LinkedHashMap<String, Any?>()
         request["use_case"] = useCase
         request["environment"] = environment ?: config.environment
         prompt?.let { request["prompt"] = it }
         variables?.let { request["variables"] = it }
 
-        val response =
-            requireTransport().execute(
-                HttpRequest(
-                    method = "POST",
-                    url = "${config.baseUrl}/resolve",
-                    headers = headers(json = true),
-                    body = Ptn.canonicalJson(Ptn.toObject(request)),
-                ),
-            )
-        if (response.status != 200) throw resolveError(useCase, response)
-        return parseServerResolution(Ptn.parseObject(response.body))
+        return requireTransport().execute(
+            HttpRequest(
+                method = "POST",
+                url = "${config.baseUrl}/resolve",
+                headers = headers(json = true),
+                body = Ptn.canonicalJson(Ptn.toObject(request)),
+            ),
+        )
     }
 
     private fun resolveError(
@@ -687,8 +716,6 @@ public class PromptOn internal constructor(
             etag = server.etag,
             warnings = server.warnings,
         )
-
-    private fun encode(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8)
 }
 
 private fun SdkInfo.asMap(): Map<String, Any?> = mapOf("name" to name, "version" to version)

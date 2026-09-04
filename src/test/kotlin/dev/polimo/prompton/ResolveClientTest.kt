@@ -113,6 +113,66 @@ class ResolveClientTest {
     }
 
     @Test
+    fun `a rate-limited resolve is not asked again before retry-after`() {
+        val attempts = AtomicInteger()
+        val transport =
+            StubTransport { request ->
+                when {
+                    !request.url.endsWith("/resolve") -> HttpResponse(304)
+                    attempts.incrementAndGet() == 1 -> HttpResponse(200, emptyMap(), rawAnswer)
+                    else -> HttpResponse(429, mapOf("retry-after" to "30"), "")
+                }
+            }
+        val clock = FakeClock()
+        PromptOn(config(transport), clock).use { prompton ->
+            prompton.resolveRemoteBlocking("greeting")
+            clock.advanceMillis(11_000)
+
+            repeat(10) {
+                assertEquals("openai/gpt-4o-mini", prompton.resolveRemoteBlocking("greeting").model)
+            }
+            assertEquals(2, transport.posts().size, "one 429, then silence for Retry-After")
+
+            clock.advanceMillis(31_000)
+            prompton.resolveRemoteBlocking("greeting")
+            assertEquals(3, transport.posts().size, "past Retry-After it asks once more")
+        }
+    }
+
+    @Test
+    fun `an unreachable resolve backs off instead of asking on every call`() {
+        val attempts = AtomicInteger()
+        val transport =
+            StubTransport { request ->
+                when {
+                    !request.url.endsWith("/resolve") -> HttpResponse(304)
+                    attempts.incrementAndGet() == 1 -> HttpResponse(200, emptyMap(), rawAnswer)
+                    else -> throw java.io.IOException("connection refused")
+                }
+            }
+        val clock = FakeClock()
+        PromptOn(config(transport), clock).use { prompton ->
+            prompton.resolveRemoteBlocking("greeting")
+
+            clock.advanceMillis(11_000)
+            repeat(5) { prompton.resolveRemoteBlocking("greeting") }
+            assertEquals(2, transport.posts().size, "one failed attempt, then the backoff holds")
+
+            clock.advanceMillis(5_000)
+            prompton.resolveRemoteBlocking("greeting")
+            assertEquals(2, transport.posts().size, "still inside the ten second window")
+
+            clock.advanceMillis(6_000)
+            prompton.resolveRemoteBlocking("greeting")
+            assertEquals(3, transport.posts().size, "the backoff has passed")
+
+            clock.advanceMillis(11_000)
+            repeat(3) { prompton.resolveRemoteBlocking("greeting") }
+            assertEquals(3, transport.posts().size, "the second backoff doubles to twenty seconds")
+        }
+    }
+
+    @Test
     fun `an unreachable server serves the cached answer instead of failing`() {
         val attempts = AtomicInteger()
         val transport =
@@ -136,9 +196,34 @@ class ResolveClientTest {
         val transport = StubTransport { request ->
             if (request.url.endsWith("/resolve")) HttpResponse(503, emptyMap(), "") else HttpResponse(304)
         }
-        PromptOn(config(transport), FakeClock()).use { prompton ->
+        val clock = FakeClock()
+        PromptOn(config(transport), clock).use { prompton ->
             val error = assertFailsWith<PromptOnApiException> { prompton.resolveRemoteBlocking("greeting") }
             assertEquals(503, error.status)
+
+            repeat(3) {
+                val blocked = assertFailsWith<PromptOnException> { prompton.resolveRemoteBlocking("greeting") }
+                assertTrue(blocked.message!!.contains("nothing is cached"), blocked.message!!)
+            }
+            assertEquals(1, transport.posts().size, "a failing server is not called again inside the window")
+
+            clock.advanceMillis(11_000)
+            assertFailsWith<PromptOnApiException> { prompton.resolveRemoteBlocking("greeting") }
+            assertEquals(2, transport.posts().size, "past the backoff it tries once more")
+        }
+    }
+
+    @Test
+    fun `a client error is not treated as a load problem`() {
+        val notFound =
+            """{"error":{"code":"not_found","message":"unknown use case: nope","details":{"use_case":"nope"}}}"""
+        val transport =
+            StubTransport { request ->
+                if (request.url.endsWith("/resolve")) HttpResponse(404, emptyMap(), notFound) else HttpResponse(304)
+            }
+        PromptOn(config(transport), FakeClock()).use { prompton ->
+            repeat(3) { assertFailsWith<UnknownUseCaseException> { prompton.resolveRemoteBlocking("nope") } }
+            assertEquals(3, transport.posts().size, "a 4xx is about the request, so every call asks")
         }
     }
 

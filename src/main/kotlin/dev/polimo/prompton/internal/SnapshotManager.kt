@@ -132,12 +132,32 @@ internal class SnapshotManager(
         if (submitted == null) refreshing.set(false)
     }
 
-    /** A blocking "fetch once now", for scripts and for [dev.polimo.prompton.PromptOn.refreshBlocking]. */
-    fun refreshNow(): Boolean {
+    /**
+     * A blocking "fetch once now", for scripts and for [dev.polimo.prompton.PromptOn.refreshBlocking].
+     *
+     * It obeys the same rate-limit window as the poller: while a `Retry-After` or a backoff is in
+     * force this returns without contacting the server, so a health check on a timer cannot hammer a
+     * server that asked for silence. Pass [force] to override that — for a one-shot script that must
+     * see the newest document and accepts being told to slow down.
+     *
+     * Returns whether a document is in memory afterwards, not whether this call fetched one: a
+     * refresh that failed while a cached document keeps serving is not a failure for the caller.
+     */
+    fun refreshNow(force: Boolean = false): Boolean {
         startupFetch.set(null)
-        if (config.mode == PromptOnMode.OFFLINE) return loadLocalTiers()
-        if (!remoteEnabled) return false
-        return fetchOnce(config.requestTimeout)
+        val until = nextAttemptAt.get()
+        when {
+            config.mode == PromptOnMode.OFFLINE -> loadLocalTiers()
+            !remoteEnabled -> Unit
+            !force && clock.now().isBefore(until) ->
+                PtnLog.throttled("snapshot-refresh-paused", 60_000) {
+                    "[PromptOn] refresh skipped: not contacting the server before $until — " +
+                        "serving the ${describeSource()} document"
+                }
+
+            else -> fetchOnce(config.requestTimeout)
+        }
+        return current.get() != null
     }
 
     fun putDocument(
@@ -300,12 +320,7 @@ internal class SnapshotManager(
         }
     }
 
-    private fun backoff(attempt: Int): Duration {
-        val base = config.cacheTtl.inWholeMilliseconds.coerceAtLeast(1_000)
-        val exponent = (attempt - 1).coerceIn(0, 20)
-        val millis = base shl exponent
-        return minOf(millis, BACKOFF_CAP.inWholeMilliseconds).milliseconds
-    }
+    private fun backoff(attempt: Int): Duration = backoffFrom(config.cacheTtl, attempt)
 
     private fun snapshotUrl(): String =
         "${config.baseUrl}/snapshot?environment=" +
@@ -333,6 +348,16 @@ internal class SnapshotManager(
 
     companion object {
         val BACKOFF_CAP: Duration = 5.minutes
+
+        /** Exponential backoff x2 from [base] (at least a second), capped at [BACKOFF_CAP]. */
+        fun backoffFrom(
+            base: Duration,
+            attempt: Int,
+        ): Duration {
+            val floor = base.inWholeMilliseconds.coerceAtLeast(1_000)
+            val exponent = (attempt - 1).coerceIn(0, 20)
+            return minOf(floor shl exponent, BACKOFF_CAP.inWholeMilliseconds).milliseconds
+        }
 
         /** `Retry-After` in seconds or as an HTTP date, else `error.details.retry_after`. */
         fun retryAfterOf(response: HttpResponse): Duration? {

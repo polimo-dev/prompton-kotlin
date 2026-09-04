@@ -26,6 +26,7 @@ jobs:
       - run: ./gradlew --no-daemon ktlintCheck
       - run: ./gradlew --no-daemon test
       - run: ./gradlew --no-daemon assemble
+      - run: ./gradlew --no-daemon :examples:run
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

@@ -65,7 +65,7 @@ class ConfigTest {
 
     @Test
     fun `the project slug is read out of the api key`() {
-        assertEquals("sdkfixture", PromptOnConfig.projectFromApiKey("ptn_sdkfixture_6yfe6v2ipbld"))
+        assertEquals("sdkfixture", PromptOnConfig.projectFromApiKey("ptn_sdkfixture_0000test0000"))
         assertEquals("my_app", PromptOnConfig.projectFromApiKey("ptn_my_app_abc123"))
         assertNull(PromptOnConfig.projectFromApiKey("not-a-prompton-key"))
         assertNull(PromptOnConfig.projectFromApiKey(null))

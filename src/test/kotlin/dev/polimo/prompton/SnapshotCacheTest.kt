@@ -251,6 +251,39 @@ class SnapshotCacheTest {
     }
 
     @Test
+    fun `fetch once now does not call a server that is rate-limiting`() {
+        val attempts = AtomicInteger()
+        val transport =
+            StubTransport { _ ->
+                if (attempts.incrementAndGet() == 1) {
+                    okResponse()
+                } else {
+                    HttpResponse(429, mapOf("retry-after" to "60"), errorBody("rate_limited", "slow down"))
+                }
+            }
+        val clock = FakeClock()
+        PromptOn(config(transport), clock).use { prompton ->
+            prompton.resolve("greeting")
+            await("the start-up fetch") { transport.requestCount() == 1 }
+
+            clock.advanceMillis(11_000)
+            prompton.refreshBlocking()
+            assertEquals(2, transport.requestCount(), "the refresh ran and was rate-limited")
+
+            repeat(5) { assertTrue(prompton.refreshBlocking(), "the cached document keeps serving") }
+            assertEquals(2, transport.requestCount(), "a rate-limited server is not asked again")
+            assertEquals("openai/gpt-4o-mini", prompton.resolve("greeting").model)
+
+            prompton.refreshBlocking(force = true)
+            assertEquals(3, transport.requestCount(), "force is the deliberate way through the window")
+
+            clock.advanceMillis(61_000)
+            prompton.refreshBlocking()
+            assertEquals(4, transport.requestCount(), "past Retry-After it asks again")
+        }
+    }
+
+    @Test
     fun `with nothing cached anywhere resolution fails with a clear message`() {
         val transport = StubTransport { HttpResponse(503, emptyMap(), "") }
         PromptOn(config(transport), FakeClock()).use { prompton ->

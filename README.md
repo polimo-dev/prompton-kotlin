@@ -56,7 +56,9 @@ val answer = prompton.generateBlocking(resolution, GenerationMeta(inputMessages 
 ```
 
 `generate` is the suspending twin of `generateBlocking`; so are `refresh`, `flush`, `resolveRemote`
-and `resolveOnServer`. Close the instance on shutdown (`prompton.close()`) so the log queue drains.
+and `resolveOnServer`. Close the instance on shutdown (`prompton.close()`) so the log queue drains —
+one process-wide shutdown hook is a backstop, and an instance you drop without closing has its
+threads released when it is garbage collected.
 
 A runnable version, including a fake provider and a committed bundle, is in
 [`examples/`](examples/src/main/kotlin/dev/polimo/prompton/examples/GreetingExample.kt):
@@ -125,7 +127,9 @@ failure    keep serving the previous document, back off, try again
   served.
 - **Rate limits.** On `429` the SDK reads `Retry-After` (seconds or an HTTP date), falling back to
   `error.details.retry_after` and then to backoff, and does not contact the server again before it
-  has elapsed. The caller sees nothing.
+  has elapsed. The caller sees nothing. Every path obeys that window — the poll loop, the
+  stale-while-revalidate refresh, `refreshBlocking()` and the `POST /resolve` client — so a health
+  check on a timer cannot hammer a server that asked for silence.
 - **Backoff.** `5xx`, timeouts and transport errors double the wait from the cache TTL up to five
   minutes, resetting on the first success.
 - **Disk cache, on by default.** Every fetched snapshot is written atomically (temp file, then
@@ -145,7 +149,16 @@ failure    keep serving the previous document, back off, try again
   `SnapshotUnavailableException`, whose message says PromptOn is unreachable and nothing is cached.
 
 `prompton.snapshotInfo()` reports what is being served — ETag, source, age and whether it is stale —
-and `prompton.refreshBlocking()` fetches once, now, for scripts and health checks.
+and `prompton.refreshBlocking()` fetches once, now, for scripts and health checks. It returns whether
+a document is in memory afterwards, and it stays silent while a `Retry-After` or a backoff window is
+running; `prompton.refreshBlocking(force = true)` is the deliberate way through that window.
+
+`prompton.resolveRemoteBlocking(useCase)` — the `POST /resolve` simple path — follows the same rules:
+the answer is cached per use case, prompt and environment for the cache TTL and rendered locally, and
+a `429`, a `5xx` or an unreachable server keeps the cached answer serving *and* stops the SDK calling
+again until `Retry-After`, or the doubling backoff, has passed. With nothing cached that call fails,
+and calls inside the window fail immediately instead of piling onto a server that is already
+struggling. A `4xx` is about the request, not about load, so it is never held back.
 
 ## How it fails
 
@@ -156,6 +169,8 @@ and `prompton.refreshBlocking()` fetches once, now, for scripts and health check
 | Refresh returns `304` | Keeps the document, marks it fresh | Unchanged |
 | Refresh returns `429` | Waits out `Retry-After`, keeps serving | Nothing; no error |
 | Refresh returns `5xx`, times out, DNS fails | Backs off ×2 up to 5 min, keeps serving | Nothing; the document is marked stale |
+| `refreshBlocking()` inside that window | Skips the call, says so once | `true` while a document is cached; `force = true` calls anyway |
+| `POST /resolve` answers `429` or `5xx`, or is unreachable | Serves the cached answer and waits out `Retry-After` or the backoff | The previous answer; with nothing cached, a `PromptOnException` saying it will not call again yet |
 | Server unreachable at start-up | Loads disk, then bundle | The cached configuration, `resolution_source` `disk` or `bundle` |
 | Snapshot for the wrong environment or project | Refuses it, logs a warning, keeps looking | The next tier, or `SnapshotUnavailableException` |
 | Corrupt or half-written cache file | Ignores it | The next tier |
@@ -169,6 +184,9 @@ and `prompton.refreshBlocking()` fetches once, now, for scripts and health check
 | `POST /generations` answers `429` or `5xx` | Retries the same batch with the same ids | Nothing; the ids make a resend a duplicate, never a double write |
 | `POST /generations` answers `413` | Splits the batch in half and resends | Nothing |
 | `POST /generations` answers another `4xx` | Drops the batch and counts it | Nothing; a warning in the log |
+| `flushBlocking()` while the server is rate-limiting | Keeps the records queued rather than flushing into the window | `FlushResult.remaining` says how many are still waiting |
+| `close()` while the server is rate-limiting | One last attempt regardless, then counts what would not go | `logStats().dropped` grows; a warning names the count |
+| An instance dropped without `close()` | A cleaner releases its threads when it is collected | Nothing; one hook for the process, not one per instance |
 | Your provider call throws | Logs `status: error`, `error.kind: app`, then rethrows | Your exception, unchanged |
 
 **Never fall back to a hard-coded prompt.** An unknown use case, an unresolved deployment or an

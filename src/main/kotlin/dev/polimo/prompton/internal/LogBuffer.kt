@@ -6,9 +6,11 @@ import dev.polimo.prompton.PromptOnConfig
 import kotlinx.serialization.json.JsonObject
 import java.time.Instant
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
@@ -77,6 +79,7 @@ internal class LogBuffer(
     private var pausedUntil: Instant = Instant.EPOCH
     private var timer: ScheduledFuture<*>? = null
 
+    private val closed = AtomicBoolean(false)
     private val accepted = AtomicLong()
     private val duplicates = AtomicLong()
     private val rejected = AtomicLong()
@@ -92,6 +95,14 @@ internal class LogBuffer(
         record: JsonObject,
         environment: String,
     ) {
+        if (closed.get()) {
+            dropped.incrementAndGet()
+            PtnLog.once(
+                "log-after-close",
+                "[PromptOn] a monitoring log arrived after close(); dropping it",
+            )
+            return
+        }
         val bytes = Ptn.jsonSize(record)
         if (bytes > config.log.maxBatchBytes) {
             dropped.incrementAndGet()
@@ -122,15 +133,33 @@ internal class LogBuffer(
         }
 
         if (immediate) {
-            worker.submit { runCatching { drain(Long.MAX_VALUE) } }
+            // A close racing this call shuts the worker down; the records are accounted for there.
+            runCatching { worker.submit { runCatching { drain(Long.MAX_VALUE) } } }
         } else {
             scheduleTimer()
         }
     }
 
-    /** Sends what is queued and waits for the result. */
-    fun flush(timeout: Duration = 10.seconds): FlushResult {
-        val future = worker.submit<FlushResult> { drain(timeout.inWholeMilliseconds) }
+    /**
+     * Sends what is queued and waits for the result.
+     *
+     * While the server is rate-limiting the queue stays where it is: flushing into a `Retry-After`
+     * window would be exactly what the server asked us not to do, so the result reports what is
+     * still `remaining` and the records leave when the window has passed. [close] makes one last
+     * attempt regardless, because after it there is no later.
+     */
+    fun flush(timeout: Duration = 10.seconds): FlushResult = flush(timeout, ignorePause = false)
+
+    private fun flush(
+        timeout: Duration,
+        ignorePause: Boolean,
+    ): FlushResult {
+        val future =
+            try {
+                worker.submit<FlushResult> { drain(timeout.inWholeMilliseconds, ignorePause) }
+            } catch (_: RejectedExecutionException) {
+                return FlushResult(0, 0, 0, 0, pending())
+            }
         return try {
             future.get(timeout.inWholeMilliseconds + 1_000, TimeUnit.MILLISECONDS)
         } catch (e: Exception) {
@@ -151,8 +180,31 @@ internal class LogBuffer(
 
     fun pending(): Int = lock.withLock { queue.size + retryQueue.sumOf { it.entries.size } }
 
+    /**
+     * Drains what it can and accounts for what it cannot.
+     *
+     * First a normal flush, then — if a `Retry-After` or backoff pause is still holding records
+     * back — one last attempt that ignores the pause, because the process is going away and a
+     * paused record is a lost record. Whatever still cannot be sent is counted in `dropped` and
+     * said out loud once, instead of disappearing silently.
+     */
     override fun close() {
-        runCatching { flush(5.seconds) }
+        if (!closed.compareAndSet(false, true)) return
+        if (pending() > 0) runCatching { flush(CLOSE_BUDGET, ignorePause = false) }
+        if (pending() > 0) runCatching { flush(CLOSE_BUDGET, ignorePause = true) }
+        val abandoned = pending()
+        if (abandoned > 0) {
+            dropped.addAndGet(abandoned.toLong())
+            lock.withLock {
+                queue.clear()
+                retryQueue.clear()
+                queuedBytes = 0
+            }
+            PtnLog.warn(
+                "[PromptOn] shutting down with $abandoned monitoring log(s) the server would not " +
+                    "take — dropped",
+            )
+        }
         worker.shutdownNow()
     }
 
@@ -162,15 +214,20 @@ internal class LogBuffer(
         lock.withLock {
             if (timer?.isDone == false) return
             timer =
-                worker.schedule(
-                    { runCatching { drain(Long.MAX_VALUE) } },
-                    config.log.flushInterval.inWholeMilliseconds,
-                    TimeUnit.MILLISECONDS,
-                )
+                runCatching {
+                    worker.schedule(
+                        { runCatching { drain(Long.MAX_VALUE) } },
+                        config.log.flushInterval.inWholeMilliseconds,
+                        TimeUnit.MILLISECONDS,
+                    )
+                }.getOrNull()
         }
     }
 
-    private fun drain(budgetMillis: Long): FlushResult {
+    private fun drain(
+        budgetMillis: Long,
+        ignorePause: Boolean = false,
+    ): FlushResult {
         val deadline = clock.now().plusMillis(budgetMillis.coerceAtMost(ONE_HOUR_MILLIS))
         var totalAccepted = 0L
         var totalDuplicates = 0L
@@ -180,7 +237,14 @@ internal class LogBuffer(
         while (true) {
             val now = clock.now()
             if (now.isAfter(deadline)) break
-            if (now.isBefore(pausedUntilSnapshot())) break
+            val holdUntil = pausedUntilSnapshot()
+            if (!ignorePause && now.isBefore(holdUntil)) {
+                PtnLog.throttled("log-paused", 30_000) {
+                    "[PromptOn] holding ${pending()} monitoring log(s) until $holdUntil: " +
+                        "the server asked for silence"
+                }
+                break
+            }
             val batch = nextBatch() ?: break
 
             val outcome =
@@ -275,11 +339,13 @@ internal class LogBuffer(
     }
 
     private fun scheduleRetry(delay: Duration) {
-        worker.schedule(
-            { runCatching { drain(Long.MAX_VALUE) } },
-            delay.inWholeMilliseconds.coerceAtLeast(1),
-            TimeUnit.MILLISECONDS,
-        )
+        runCatching {
+            worker.schedule(
+                { runCatching { drain(Long.MAX_VALUE) } },
+                delay.inWholeMilliseconds.coerceAtLeast(1),
+                TimeUnit.MILLISECONDS,
+            )
+        }
     }
 
     private fun nextBatch(): Batch? =
@@ -302,6 +368,7 @@ internal class LogBuffer(
 
     private companion object {
         const val ONE_HOUR_MILLIS = 3_600_000L
+        val CLOSE_BUDGET: Duration = 5.seconds
     }
 
     private fun backoff(attempts: Int): Duration {
