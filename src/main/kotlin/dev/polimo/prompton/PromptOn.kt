@@ -44,6 +44,13 @@ public data class FlushResult(
     val remaining: Int,
 )
 
+/** What one immediate trace-event submission achieved. */
+public data class EventLogResult(
+    val accepted: Long,
+    val duplicates: Long,
+    val rejected: List<Map<String, Any?>>,
+)
+
 /** Counters for the monitoring-log queue. */
 public data class LogStats(
     val queued: Int,
@@ -54,7 +61,7 @@ public data class LogStats(
     val batchesSent: Long,
 )
 
-/** The answer `POST /api/v1/renders/{key}/render` gives: the server-rendered prompt prompt. */
+/** The answer `POST /api/v1/prompts/{key}/render` gives: the server-rendered prompt prompt. */
 public data class ServerUseCasePrompt(
     val key: String,
     val kind: UseCaseKind,
@@ -68,6 +75,7 @@ public data class ServerUseCasePrompt(
     val provider: String?,
     val params: Map<String, Any?>,
     val providerOptions: Map<String, Any?>,
+    val providerPreparedRequest: Map<String, Any?> = emptyMap(),
     val promptVersionId: String?,
     val promptVersionNumber: Int?,
     val messages: List<PromptMessage>?,
@@ -214,7 +222,7 @@ public class PromptOn internal constructor(
     // The server-rendered prompt client
 
     /**
-     * Reads through `POST /renders/{key}/render` instead of the prompt document: the simple path
+     * Reads through `POST /prompts/{key}/render` instead of the prompt document: the simple path
      * for a low-traffic call site, and a smoke test for a deployment.
      *
      * The answer is cached for the same cache TTL per prompt, prompt and environment, and the
@@ -240,7 +248,7 @@ public class PromptOn internal constructor(
     ): UseCase = withContext(Dispatchers.IO) { useCaseRemoteBlocking(useCase, prompt, environment) }
 
     /**
-     * Calls `POST /renders/{key}/render` with [variables] and returns the server's answer
+     * Calls `POST /prompts/{key}/render` with [variables] and returns the server's answer
      * verbatim, rendered server-side. Never cached.
      */
     @JvmOverloads
@@ -283,14 +291,14 @@ public class PromptOn internal constructor(
         environment: String = config.environment,
     ) {
         val fields = LinkedHashMap(Ptn.toObject(record))
-        require(fields.containsKey("use_case")) { "a monitoring log needs a use_case" }
+        require(fields.containsKey("prompt_key")) { "a monitoring log needs a prompt_key" }
         require(fields.containsKey("model")) { "a monitoring log needs a model" }
         require(fields.containsKey("status")) { "a monitoring log needs a status" }
         if (!fields.containsKey("id")) fields["id"] = Ptn.toElement(UuidV7.generate())
         if (!fields.containsKey("started_at")) fields["started_at"] = Ptn.toElement(clock.now())
         require(Ptn.asString(fields["started_at"]) != null) { "a monitoring log needs a started_at" }
         if (!fields.containsKey("sdk")) fields["sdk"] = Ptn.toElement(SdkInfo.CURRENT.asMap())
-        enqueue(JsonObject(fields), Ptn.asString(fields["use_case"]), environment)
+        enqueue(JsonObject(fields), Ptn.asString(fields["prompt_key"]), environment)
     }
 
     /**
@@ -304,16 +312,26 @@ public class PromptOn internal constructor(
     public fun logEvents(
         events: List<Map<String, Any?>>,
         environment: String = config.environment,
-    ) {
+    ): EventLogResult {
         val prepared = prepareEvents(events)
         if (config.mode == PromptOnMode.TEST) {
             synchronized(capturedEvents) { capturedEvents.addAll(prepared) }
-            return
+            return EventLogResult(prepared.size.toLong(), 0, emptyList())
         }
-        if (config.mode == PromptOnMode.OFFLINE || config.apiKey.isNullOrBlank()) return
-        val outcome = logs.postEvents(environment, prepared)
-        if (outcome !is dev.polimo.prompton.internal.BatchOutcome.Accepted) {
-            throw PromptOnException("event log submission failed: $outcome")
+        if (config.mode == PromptOnMode.OFFLINE || config.apiKey.isNullOrBlank()) {
+            return EventLogResult(0, 0, emptyList())
+        }
+        return when (val outcome = logs.postEvents(environment, prepared)) {
+            is dev.polimo.prompton.internal.BatchOutcome.Accepted ->
+                EventLogResult(
+                    accepted = outcome.accepted.toLong(),
+                    duplicates = outcome.duplicates.toLong(),
+                    rejected = outcome.rejected.map {
+                        Ptn.toNativeMap(it)
+                    },
+                )
+
+            else -> throw PromptOnException("event log submission failed: $outcome")
         }
     }
 
@@ -584,7 +602,7 @@ public class PromptOn internal constructor(
     private fun headers(json: Boolean): Map<String, String> = config.wireHeaders(json)
 
     /**
-     * The cached `/renders/{key}/render` answer, refreshed at most once per cache TTL and never
+     * The cached `/prompts/{key}/render` answer, refreshed at most once per cache TTL and never
      * while the server is asking for silence.
      *
      * A `429`, a `5xx` or an unreachable server keeps serving the cached answer *and* starts a
@@ -611,7 +629,7 @@ public class PromptOn internal constructor(
         if (blockedUntil != null && now.isBefore(blockedUntil)) {
             cached?.let { return it }
             throw PromptOnException(
-                "PromptOn answered /renders/$useCase/render with an error and nothing is cached: " +
+                "PromptOn answered /prompts/$useCase/render with an error and nothing is cached: " +
                     "not calling again before $blockedUntil",
             )
         }
@@ -620,7 +638,7 @@ public class PromptOn internal constructor(
             try {
                 postUseCasePromptResponse(useCase, prompt, environment, null)
             } catch (e: Exception) {
-                pauseResolve(key, now, cached, null, "/renders/$useCase/render is unreachable (${e.message})")
+                pauseResolve(key, now, cached, null, "/prompts/$useCase/render is unreachable (${e.message})")
                 cached?.let { return it }
                 throw e
             }
@@ -638,7 +656,7 @@ public class PromptOn internal constructor(
                 now,
                 cached,
                 SnapshotManager.retryAfterOf(response),
-                "/renders/$useCase/render answered ${response.status}",
+                "/prompts/$useCase/render answered ${response.status}",
             )
             cached?.let { return it }
         }
@@ -646,7 +664,7 @@ public class PromptOn internal constructor(
     }
 
     /**
-     * Stops calling `/renders/{key}/render` for this key until the window has passed, and keeps whatever was
+     * Stops calling `/prompts/{key}/render` for this key until the window has passed, and keeps whatever was
      * cached alive for at least that long. Only `429`, `5xx` and transport failures land here — a
      * `4xx` is about the request, not about load, and repeating it is the caller's business.
      */
@@ -692,7 +710,7 @@ public class PromptOn internal constructor(
         return requireTransport().execute(
             HttpRequest(
                 method = "POST",
-                url = "${config.baseUrl}/renders/${java.net.URLEncoder.encode(
+                url = "${config.baseUrl}/prompts/${java.net.URLEncoder.encode(
                     useCase,
                     java.nio.charset.StandardCharsets.UTF_8,
                 )}/render",
@@ -754,6 +772,7 @@ public class PromptOn internal constructor(
             provider = Ptn.asString(body["provider"]),
             params = Resolver.mergeTools(map("params"), map("tools")),
             providerOptions = map("provider_options"),
+            providerPreparedRequest = map("request"),
             promptVersionId = Ptn.asString(version?.get("id")),
             promptVersionNumber = Ptn.asInt(version?.get("number")),
             messages =
@@ -773,6 +792,7 @@ public class PromptOn internal constructor(
                         hasContent = message.containsKey("content"),
                         toolCallId = Ptn.asString(message["tool_call_id"]),
                         toolCalls = calls,
+                        hasToolCalls = message.containsKey("tool_calls"),
                         extra = native - setOf("role", "type", "content", "name", "tool_call_id", "tool_calls"),
                     )
                 },
@@ -799,6 +819,7 @@ public class PromptOn internal constructor(
             provider = server.provider,
             params = server.params,
             providerOptions = server.providerOptions,
+            providerPreparedRequest = server.providerPreparedRequest,
             promptVersionId = server.promptVersionId,
             promptVersionNumber = server.promptVersionNumber,
             engine = TemplateEngine.LIQUID,

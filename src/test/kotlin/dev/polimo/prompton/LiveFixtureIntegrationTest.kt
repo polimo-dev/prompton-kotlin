@@ -75,13 +75,13 @@ class LiveFixtureIntegrationTest {
             assertTrue(info.etag!!.contains("sha256-"), info.etag!!)
             assertTrue(info.useCases >= 3, "expected the fixture's three prompts, got ${info.useCases}")
 
-            val before = transport.statuses("/renders").size
+            val before = transport.statuses("/prompts").size
             clock.advanceMillis(11_000)
             prompton.useCase("greeting")
-            await("the revalidation") { transport.statuses("/renders").size > before }
+            await("the revalidation") { transport.statuses("/prompts").size > before }
             settle()
 
-            val statuses = transport.statuses("/renders")
+            val statuses = transport.statuses("/prompts")
             assertEquals(200, statuses.first(), "the first fetch carries the document")
             assertTrue(
                 statuses.drop(1).all { it == 304 },

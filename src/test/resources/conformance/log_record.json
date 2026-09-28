@@ -44,12 +44,12 @@
             "max_tokens": 512,
             "temperature": 0.2
           },
-          "prompt": "default",
+          "template": "default",
           "prompt_version_id": "0198f2a1-0000-7000-8000-00000000a001",
           "provider": "openrouter",
           "sdk": {
             "name": "prompton_sdk",
-            "version": "0.4.1"
+            "version": "0.4.2"
           },
           "sequence": 1,
           "source": "remote",
@@ -69,7 +69,7 @@
               "total_tokens": 47
             }
           },
-          "use_case": "greeting"
+          "prompt_key": "greeting"
         },
         {
           "context": {},
@@ -104,12 +104,12 @@
             "max_tokens": 512,
             "temperature": 0.2
           },
-          "prompt": "default",
+          "template": "default",
           "prompt_version_id": "0198f2a1-0000-7000-8000-00000000a001",
           "provider": "openrouter",
           "sdk": {
             "name": "prompton_sdk",
-            "version": "0.4.1"
+            "version": "0.4.2"
           },
           "sequence": 2,
           "source": "remote",
@@ -123,7 +123,7 @@
             "output_tokens": null,
             "raw": null
           },
-          "use_case": "greeting"
+          "prompt_key": "greeting"
         },
         {
           "context": {},
@@ -161,12 +161,12 @@
             "max_tokens": 512,
             "temperature": 0.2
           },
-          "prompt": "default",
+          "template": "default",
           "prompt_version_id": "0198f2a1-0000-7000-8000-00000000a001",
           "provider": "openrouter",
           "sdk": {
             "name": "prompton_sdk",
-            "version": "0.4.1"
+            "version": "0.4.2"
           },
           "source": "remote",
           "started_at": "2026-09-04T09:00:00.000000Z",
@@ -180,7 +180,7 @@
             "output_tokens": 512,
             "raw": null
           },
-          "use_case": "greeting"
+          "prompt_key": "greeting"
         },
         {
           "context": {},
@@ -204,7 +204,7 @@
           "provider": "openrouter",
           "sdk": {
             "name": "prompton_sdk",
-            "version": "0.4.1"
+            "version": "0.4.2"
           },
           "source": "disk",
           "started_at": "2026-09-04T09:00:00.000000Z",
@@ -217,7 +217,7 @@
             "output_tokens": 0,
             "raw": null
           },
-          "use_case": "embed"
+          "prompt_key": "embed"
         },
         {
           "deployment_id": "0198f2a1-0000-7000-8000-00000000d002",
@@ -234,12 +234,12 @@
           "output": {
             "content": "Alpha and beta, summarised."
           },
-          "prompt": "default",
+          "template": "default",
           "prompt_version_id": "0198f2a1-0000-7000-8000-00000000a003",
           "provider": "openrouter",
           "sdk": {
             "name": "prompton_sdk",
-            "version": "0.4.1"
+            "version": "0.4.2"
           },
           "source": "bundle",
           "started_at": "2026-09-04T09:00:00.000000Z",
@@ -250,7 +250,7 @@
             "input_tokens": 22,
             "output_tokens": 7
           },
-          "use_case": "summarize"
+          "prompt_key": "summarize"
         }
       ]
     },
@@ -296,7 +296,7 @@
     "provider": "openrouter | groq | openai | anthropic | google | other (unknown becomes other)",
     "required": [
       "id",
-      "use_case",
+      "prompt_key",
       "model",
       "status",
       "started_at"
@@ -307,15 +307,15 @@
     "status": "ok | error",
     "stop_kind": "stop | length | tool_call | content_filter | other; derived from finish_reason when absent",
     "usage.cost_source": "provider | catalog | unknown",
-    "use_case": "the prompt key, at most 512 bytes"
+    "prompt_key": "the prompt key, at most 512 bytes"
   },
   "format_version": 1,
   "generated_from": {
     "commit": "14d4817832d8a906a461ad708f3245796f6be4b1",
     "language": "elixir",
-    "repo": "https://github.com/polimo-dev/renderon-elixir",
+    "repo": "https://github.com/polimo-dev/prompton-elixir",
     "sdk": "prompton_sdk",
-    "sdk_version": "0.4.1"
+    "sdk_version": "0.4.2"
   },
   "records": [
     {
@@ -363,12 +363,12 @@
           "max_tokens": 512,
           "temperature": 0.2
         },
-        "prompt": "default",
+        "template": "default",
         "prompt_version_id": "0198f2a1-0000-7000-8000-00000000a001",
         "provider": "openrouter",
         "sdk": {
           "name": "prompton_sdk",
-          "version": "0.4.1"
+          "version": "0.4.2"
         },
         "sequence": 1,
         "source": "remote",
@@ -388,7 +388,7 @@
             "total_tokens": 47
           }
         },
-        "use_case": "greeting"
+        "prompt_key": "greeting"
       }
     },
     {
@@ -428,12 +428,12 @@
           "max_tokens": 512,
           "temperature": 0.2
         },
-        "prompt": "default",
+        "template": "default",
         "prompt_version_id": "0198f2a1-0000-7000-8000-00000000a001",
         "provider": "openrouter",
         "sdk": {
           "name": "prompton_sdk",
-          "version": "0.4.1"
+          "version": "0.4.2"
         },
         "sequence": 2,
         "source": "remote",
@@ -447,7 +447,7 @@
           "output_tokens": null,
           "raw": null
         },
-        "use_case": "greeting"
+        "prompt_key": "greeting"
       }
     },
     {
@@ -490,12 +490,12 @@
           "max_tokens": 512,
           "temperature": 0.2
         },
-        "prompt": "default",
+        "template": "default",
         "prompt_version_id": "0198f2a1-0000-7000-8000-00000000a001",
         "provider": "openrouter",
         "sdk": {
           "name": "prompton_sdk",
-          "version": "0.4.1"
+          "version": "0.4.2"
         },
         "source": "remote",
         "started_at": "2026-09-04T09:00:00.000000Z",
@@ -509,7 +509,7 @@
           "output_tokens": 512,
           "raw": null
         },
-        "use_case": "greeting"
+        "prompt_key": "greeting"
       }
     },
     {
@@ -538,7 +538,7 @@
         "provider": "openrouter",
         "sdk": {
           "name": "prompton_sdk",
-          "version": "0.4.1"
+          "version": "0.4.2"
         },
         "source": "disk",
         "started_at": "2026-09-04T09:00:00.000000Z",
@@ -551,7 +551,7 @@
           "output_tokens": 0,
           "raw": null
         },
-        "use_case": "embed"
+        "prompt_key": "embed"
       }
     },
     {
@@ -573,12 +573,12 @@
         "output": {
           "content": "Alpha and beta, summarised."
         },
-        "prompt": "default",
+        "template": "default",
         "prompt_version_id": "0198f2a1-0000-7000-8000-00000000a003",
         "provider": "openrouter",
         "sdk": {
           "name": "prompton_sdk",
-          "version": "0.4.1"
+          "version": "0.4.2"
         },
         "source": "bundle",
         "started_at": "2026-09-04T09:00:00.000000Z",
@@ -589,7 +589,7 @@
           "input_tokens": 22,
           "output_tokens": 7
         },
-        "use_case": "summarize"
+        "prompt_key": "summarize"
       }
     }
   ]

@@ -157,7 +157,7 @@ public data class LogRecord
         val sdk: SdkInfo? = null,
     ) {
         init {
-            require(useCase.isNotBlank()) { "a monitoring log needs a use_case" }
+            require(useCase.isNotBlank()) { "a monitoring log needs a prompt_key" }
             require(model.isNotBlank()) { "a monitoring log needs a model" }
         }
 
@@ -165,14 +165,14 @@ public data class LogRecord
         public fun toJsonObject(): JsonObject {
             val fields = LinkedHashMap<String, JsonElement>()
             fields["id"] = JsonPrimitive(id ?: UuidV7.generate())
-            fields["use_case"] = JsonPrimitive(useCase)
+            fields["prompt_key"] = JsonPrimitive(useCase)
             fields["model"] = JsonPrimitive(model)
             fields["status"] = JsonPrimitive(status.wire)
             fields["started_at"] = JsonPrimitive(Iso8601.format(startedAt))
             put(fields, "kind", kind?.wire)
             put(fields, "deployment_id", deploymentId)
             deploymentRevision?.let { fields["deployment_revision"] = JsonPrimitive(it) }
-            put(fields, "prompt", prompt)
+            put(fields, "template", prompt)
             put(fields, "prompt_version_id", promptVersionId)
             put(fields, "model_id", modelId)
             put(fields, "source", source?.wire)
@@ -251,7 +251,7 @@ public data class LogRecord
             if (message.hasContent) fields["content"] = Ptn.toElement(message.contentValue)
             message.name?.let { fields["name"] = JsonPrimitive(it) }
             message.toolCallId?.let { fields["tool_call_id"] = JsonPrimitive(it) }
-            if (message.toolCalls.isNotEmpty()) {
+            if (message.hasToolCalls || message.toolCalls.isNotEmpty()) {
                 fields["tool_calls"] = JsonArray(message.toolCalls.map { Ptn.toElement(it) })
             }
             return JsonObject(fields)

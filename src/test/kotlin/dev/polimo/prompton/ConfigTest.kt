@@ -27,7 +27,7 @@ class ConfigTest {
         assertEquals("https://app.prompton.ai/api/v1", config.baseUrl)
         assertEquals("production", config.environment)
         assertEquals(10_000, config.cacheTtl.inWholeMilliseconds)
-        assertEquals("prompton-kotlin/0.4.1", config.userAgent)
+        assertEquals("prompton-kotlin/0.4.2", config.userAgent)
         assertEquals(PromptOnMode.LIVE, config.mode)
         assertTrue(config.diskCacheEnabled)
     }
@@ -36,14 +36,14 @@ class ConfigTest {
     fun `environment variables beat the defaults`() {
         withEnvironment(
             mapOf(
-                "PTN_HOST" to "https://renderon.example",
+                "PTN_HOST" to "https://prompton.example",
                 "PTN_API_KEY" to "ptn_acme_secret",
                 "PTN_ENVIRONMENT" to "staging",
             ),
         )
         val config = PromptOnConfig()
-        assertEquals("https://renderon.example", config.host)
-        assertEquals("https://renderon.example/api/v1", config.baseUrl)
+        assertEquals("https://prompton.example", config.host)
+        assertEquals("https://prompton.example/api/v1", config.baseUrl)
         assertEquals("ptn_acme_secret", config.apiKey)
         assertEquals("staging", config.environment)
         assertEquals("acme", config.project, "the project slug comes from the key")
@@ -60,7 +60,7 @@ class ConfigTest {
     @Test
     fun `a trailing slash on the host does not double up`() {
         withEnvironment(emptyMap())
-        assertEquals("https://renderon.example/api/v1", PromptOnConfig(host = "https://renderon.example/").baseUrl)
+        assertEquals("https://prompton.example/api/v1", PromptOnConfig(host = "https://prompton.example/").baseUrl)
     }
 
     @Test

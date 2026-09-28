@@ -12,6 +12,7 @@ public data class PromptMessage
         val hasContent: Boolean = true,
         val toolCallId: String? = null,
         val toolCalls: List<Map<String, Any?>> = emptyList(),
+        val hasToolCalls: Boolean = false,
         val extra: Map<String, Any?> = emptyMap(),
     )
 

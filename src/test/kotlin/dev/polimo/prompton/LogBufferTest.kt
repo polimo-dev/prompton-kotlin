@@ -24,7 +24,7 @@ class LogBufferTest {
         environment: String = "production",
     ) = PromptOnConfig(
         apiKey = "ptn_fixture_secret",
-        host = "https://renderon.test",
+        host = "https://prompton.test",
         environment = environment,
         project = "fixture",
         pollingEnabled = false,
@@ -85,7 +85,7 @@ class LogBufferTest {
             assertEquals(1, result.accepted)
             assertEquals(1, transport.postCount())
             assertEquals(
-                "https://renderon.test/api/v1/logs?environment=production",
+                "https://prompton.test/api/v1/logs?environment=production",
                 transport.lastPost().url,
             )
             assertEquals("Bearer ptn_fixture_secret", transport.lastPost().headers["authorization"])
@@ -103,7 +103,7 @@ class LogBufferTest {
             val sent = batchOf(transport.lastPost()).single()
             val sdk = sent["sdk"] as JsonObject
             assertEquals("prompton-kotlin", (sdk["name"] as JsonPrimitive).content)
-            assertEquals("0.4.1", (sdk["version"] as JsonPrimitive).content)
+            assertEquals("0.4.2", (sdk["version"] as JsonPrimitive).content)
             val id = (sent["id"] as JsonPrimitive).content
             assertEquals('7', id[14], "the version nibble of a UUIDv7 is 7: $id")
             assertNotNull(UuidV7.timestampMillis(id))
@@ -136,7 +136,7 @@ class LogBufferTest {
                 environment = "staging",
             )
 
-            assertEquals("https://renderon.test/api/v1/logs?environment=staging", transport.lastPost().url)
+            assertEquals("https://prompton.test/api/v1/logs?environment=staging", transport.lastPost().url)
             val body = dev.polimo.prompton.internal.Ptn
                 .parseObject(transport.lastPost().body!!)
             assertEquals(0, (body["logs"] as JsonArray).size)
@@ -145,11 +145,54 @@ class LogBufferTest {
             assertEquals("2026-09-04T09:00:00Z", (event["observed_at"] as JsonPrimitive).content)
             val sdk = event["sdk"] as JsonObject
             assertEquals("prompton-kotlin", (sdk["name"] as JsonPrimitive).content)
-            assertEquals("0.4.1", (sdk["version"] as JsonPrimitive).content)
+            assertEquals("0.4.2", (sdk["version"] as JsonPrimitive).content)
             val metadataSdk = ((event["metadata"] as JsonObject)["sdk"] as JsonObject)
-            assertEquals("0.4.1", (metadataSdk["version"] as JsonPrimitive).content)
+            assertEquals("0.4.2", (metadataSdk["version"] as JsonPrimitive).content)
             val arguments = event["arguments"] as JsonObject
             assertEquals("mood", (arguments["query"] as JsonPrimitive).content)
+        }
+    }
+
+    @Test
+    fun `logEvents returns nested event acceptance counts`() {
+        val transport = transport {
+            HttpResponse(
+                202,
+                emptyMap(),
+                """{"accepted":0,"duplicates":0,"rejected":[],"events":{"accepted":1,"duplicates":1,"rejected":[{"event_id":"evt-bad","message":"bad event"}]}}""",
+            )
+        }
+        PromptOn(config(transport), FakeClock(startedAt)).use { prompton ->
+            val result = prompton.logEvents(
+                listOf(
+                    mapOf("trace_id" to "trace-1", "event_kind" to "completion", "status" to "ok"),
+                    mapOf("trace_id" to "trace-1", "event_kind" to "completion", "status" to "error"),
+                    mapOf("trace_id" to "trace-1", "event_kind" to "completion", "status" to "missing"),
+                ),
+            )
+
+            assertEquals(1, result.accepted)
+            assertEquals(1, result.duplicates)
+            assertEquals("evt-bad", result.rejected.single()["event_id"])
+        }
+    }
+
+    @Test
+    fun `logEvents surfaces http auth failures`() {
+        val transport = transport { HttpResponse(401, emptyMap(), """{"error":{"message":"bad key"}}""") }
+        PromptOn(config(transport), FakeClock(startedAt)).use { prompton ->
+            val thrown = assertFailsWith<PromptOnException> {
+                prompton.logEvents(
+                    listOf(
+                        mapOf(
+                            "trace_id" to "trace-1",
+                            "event_kind" to "completion",
+                            "status" to "ok",
+                        ),
+                    ),
+                )
+            }
+            assertTrue(thrown.message!!.contains("event log submission failed"))
         }
     }
 
@@ -511,7 +554,7 @@ class LogBufferTest {
 
             assertEquals(2, prompton.capturedRecords().size)
             assertEquals(0, transport.postCount())
-            assertEquals("greeting", (prompton.capturedRecords()[0]["use_case"] as JsonPrimitive).content)
+            assertEquals("greeting", (prompton.capturedRecords()[0]["prompt_key"] as JsonPrimitive).content)
 
             prompton.clearCapturedRecords()
             assertEquals(0, prompton.capturedRecords().size)

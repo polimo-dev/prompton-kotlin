@@ -24,7 +24,7 @@ class SnapshotCacheTest {
         cacheTtl: kotlin.time.Duration = 10.seconds,
     ) = PromptOnConfig(
         apiKey = "ptn_fixture_secret",
-        host = "https://renderon.test",
+        host = "https://prompton.test",
         environment = "production",
         project = "fixture",
         cacheTtl = cacheTtl,
@@ -66,7 +66,7 @@ class SnapshotCacheTest {
 
             val revalidation = transport.lastRequest()
             assertEquals(SnapshotFixtures.PRODUCTION_ETAG, revalidation.headers["if-none-match"])
-            assertEquals("https://renderon.test/api/v1/renders?environment=production", revalidation.url)
+            assertEquals("https://prompton.test/api/v1/prompts?environment=production", revalidation.url)
             assertEquals("Bearer ptn_fixture_secret", revalidation.headers["authorization"])
             assertTrue(revalidation.headers["user-agent"]!!.startsWith("prompton-kotlin/"))
 

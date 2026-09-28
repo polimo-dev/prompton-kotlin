@@ -13,7 +13,7 @@ public class UnsupportedSchemaVersionException(
     )
 
 /**
- * A decoded `GET /renders` document (schema v4): everything live in one environment.
+ * A decoded `GET /prompts` document (schema v4): everything live in one environment.
  *
  * Decoding is lenient about additions to schema v4, and strict about the schema itself: only
  * `schema_version: 4` is accepted.
@@ -44,7 +44,7 @@ public class UseCaseDocument internal constructor(
     public companion object {
         public const val SCHEMA_VERSION: Int = 7
 
-        /** Decodes a `GET /renders` body. */
+        /** Decodes a `GET /prompts` body. */
         public fun parse(json: String): UseCaseDocument = decode(Ptn.parseObject(json), json)
 
         internal fun decode(
@@ -198,6 +198,7 @@ public class UseCaseDocument internal constructor(
                             hasContent = message.containsKey("content"),
                             toolCallId = Ptn.asString(message["tool_call_id"]),
                             toolCalls = calls,
+                            hasToolCalls = message.containsKey("tool_calls"),
                             extra = native - setOf("role", "type", "content", "name", "tool_call_id", "tool_calls"),
                         )
                     },

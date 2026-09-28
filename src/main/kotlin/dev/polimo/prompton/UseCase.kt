@@ -23,6 +23,7 @@ public data class UseCase(
     val provider: String?,
     val params: Map<String, Any?>,
     val providerOptions: Map<String, Any?>,
+    val providerPreparedRequest: Map<String, Any?> = emptyMap(),
     val promptVersionId: String?,
     val promptVersionNumber: Int?,
     val engine: TemplateEngine,

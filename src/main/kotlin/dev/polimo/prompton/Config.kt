@@ -115,7 +115,7 @@ public data class PromptOnConfig
             public const val DEFAULT_HOST: String = "https://app.prompton.ai"
             public const val DEFAULT_ENVIRONMENT: String = "production"
             public const val SDK_NAME: String = "prompton-kotlin"
-            public const val SDK_VERSION: String = "0.4.1"
+            public const val SDK_VERSION: String = "0.4.2"
 
             /** `ptn_<project_slug>_<random>` carries the project slug; that is where the cache file is named from. */
             public fun projectFromApiKey(apiKey: String?): String? {

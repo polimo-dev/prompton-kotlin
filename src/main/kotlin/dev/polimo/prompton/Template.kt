@@ -93,6 +93,7 @@ public object Template {
                                 hasContent = map.containsKey("content"),
                                 toolCallId = map["tool_call_id"]?.toString(),
                                 toolCalls = nativeToolCalls(map["tool_calls"]),
+                                hasToolCalls = map.containsKey("tool_calls"),
                                 extra = map - setOf("role", "type", "content", "name", "tool_call_id", "tool_calls"),
                             ),
                         )

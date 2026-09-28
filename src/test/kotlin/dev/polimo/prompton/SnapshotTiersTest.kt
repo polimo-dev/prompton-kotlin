@@ -27,7 +27,7 @@ class SnapshotTiersTest {
         project: String? = "fixture",
     ) = PromptOnConfig(
         apiKey = "ptn_fixture_secret",
-        host = "https://renderon.test",
+        host = "https://prompton.test",
         environment = environment,
         project = project,
         cacheTtl = 10.seconds,

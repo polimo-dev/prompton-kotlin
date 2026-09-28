@@ -214,7 +214,11 @@ class UseCaseConformanceTest {
         if (message.hasContent) fields["content"] = element(message.contentValue)
         message.name?.let { fields["name"] = JsonPrimitive(it) }
         message.toolCallId?.let { fields["tool_call_id"] = JsonPrimitive(it) }
-        if (message.toolCalls.isNotEmpty()) fields["tool_calls"] = JsonArray(message.toolCalls.map { element(it) })
+        if (message.hasToolCalls || message.toolCalls.isNotEmpty()) {
+            fields["tool_calls"] = JsonArray(
+                message.toolCalls.map { element(it) },
+            )
+        }
         return JsonObject(fields)
     }
 

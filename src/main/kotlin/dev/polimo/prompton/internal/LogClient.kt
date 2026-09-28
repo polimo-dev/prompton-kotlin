@@ -27,12 +27,13 @@ internal class LogClient(
     fun postEvents(
         environment: String,
         events: List<JsonObject>,
-    ): BatchOutcome = postEnvelope(environment, emptyList(), events)
+    ): BatchOutcome = postEnvelope(environment, emptyList(), events, readEventCounts = true)
 
     private fun postEnvelope(
         environment: String,
         records: List<JsonObject>,
         events: List<JsonObject>,
+        readEventCounts: Boolean = false,
     ): BatchOutcome {
         val bodyFields = LinkedHashMap<String, kotlinx.serialization.json.JsonElement>()
         bodyFields["logs"] = JsonArray(records)
@@ -50,10 +51,11 @@ internal class LogClient(
         return when {
             response.status in 200..299 -> {
                 val parsed = runCatching { Ptn.parseObject(response.body) }.getOrNull()
+                val counts = if (readEventCounts) Ptn.asObject(parsed?.get("events")) ?: parsed else parsed
                 BatchOutcome.Accepted(
-                    accepted = Ptn.asInt(parsed?.get("accepted")) ?: 0,
-                    duplicates = Ptn.asInt(parsed?.get("duplicates")) ?: 0,
-                    rejected = Ptn.asArray(parsed?.get("rejected"))?.mapNotNull { Ptn.asObject(it) }.orEmpty(),
+                    accepted = Ptn.asInt(counts?.get("accepted")) ?: 0,
+                    duplicates = Ptn.asInt(counts?.get("duplicates")) ?: 0,
+                    rejected = Ptn.asArray(counts?.get("rejected"))?.mapNotNull { Ptn.asObject(it) }.orEmpty(),
                 )
             }
 

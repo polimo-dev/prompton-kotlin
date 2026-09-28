@@ -23,7 +23,7 @@ class LifecycleTest {
     private fun config() =
         PromptOnConfig(
             apiKey = "ptn_fixture_secret",
-            host = "https://renderon.test",
+            host = "https://prompton.test",
             environment = "production",
             project = "fixture",
             cacheTtl = 10.seconds,

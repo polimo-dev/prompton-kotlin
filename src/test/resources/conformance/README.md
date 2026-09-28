@@ -15,7 +15,7 @@ mix run scripts/gen_conformance.exs
 
 The Elixir SDK is the reference implementation, and the PromptOn server reuses its pure prompt
 document, resolver, template and stop-kind modules directly, so these fixtures also describe the
-server. `test/renderon_sdk/conformance_test.exs` runs every case back through the SDK, which is
+server. `test/prompton_sdk/conformance_test.exs` runs every case back through the SDK, which is
 what keeps the files from drifting.
 
 Each file records the commit it was generated from in `generated_from.commit`.
@@ -53,9 +53,9 @@ the prompt version is committed, so a template that fails lint can never reach a
 ### prompt.json
 
 `documents` is a map of reference name → a complete schema-v4 prompt document, exactly as
-`GET /api/v1/renders?environment=…` returns it. For each case, decode
-`documents[document_ref]`, use_case `use_case` with the optional `prompt` name, and — when
-`variables` is present — render the resulting prompt. This is precisely what `POST /api/v1/renders/{key}/render`
+`GET /api/v1/prompts?environment=…` returns it. For each case, decode
+`documents[document_ref]`, use_case `prompt_key` with the optional `prompt` name, and — when
+`variables` is present — render the resulting prompt. This is precisely what `POST /api/v1/prompts/{key}/render`
 does on the server.
 
 ### truncation.json
@@ -250,6 +250,6 @@ an SDK; do keep `context` and `metadata` small.
 
 ## Source
 
-Generated from the PromptOn Elixir SDK, <https://github.com/polimo-dev/renderon-elixir>. The exact
+Generated from the PromptOn Elixir SDK, <https://github.com/polimo-dev/prompton-elixir>. The exact
 commit is in `generated_from.commit` in each file, and `generated_from.sdk_version` is the SDK
 version those expectations came from.

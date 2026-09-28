@@ -323,7 +323,7 @@ internal class SnapshotManager(
     private fun backoff(attempt: Int): Duration = backoffFrom(config.cacheTtl, attempt)
 
     private fun snapshotUrl(): String =
-        "${config.baseUrl}/renders?environment=" +
+        "${config.baseUrl}/prompts?environment=" +
             URLEncoder.encode(config.environment, StandardCharsets.UTF_8)
 
     private fun requestHeaders(etag: String?): Map<String, String> {

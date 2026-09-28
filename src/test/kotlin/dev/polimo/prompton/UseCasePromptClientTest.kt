@@ -12,12 +12,12 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
-/** The `POST /renders/{key}/render` client: the simple path, cached like the prompt document. */
+/** The `POST /prompts/{key}/render` client: the simple path, cached like the prompt document. */
 class UseCasePromptClientTest {
     private fun config(transport: HttpTransport) =
         PromptOnConfig(
             apiKey = "ptn_fixture_secret",
-            host = "https://renderon.test",
+            host = "https://prompton.test",
             environment = "production",
             project = "fixture",
             cacheTtl = 10.seconds,
@@ -52,7 +52,7 @@ class UseCasePromptClientTest {
 
     private fun resolveTransport(body: AtomicReference<HttpResponse>) =
         StubTransport { request ->
-            if (request.url.contains("/renders/") &&
+            if (request.url.contains("/prompts/") &&
                 request.url.endsWith("/render")
             ) {
                 body.get()
@@ -77,8 +77,8 @@ class UseCasePromptClientTest {
 
             val body = Ptn.parseObject(transport.posts().single().body!!)
             assertNull(body["variables"], "the cached path asks for the raw template")
-            assertNull(body["use_case"], "the prompt key lives in the path")
-            assertEquals("https://renderon.test/api/v1/renders/greeting/render", transport.posts().single().url)
+            assertNull(body["prompt_key"], "the prompt key lives in the path")
+            assertEquals("https://prompton.test/api/v1/prompts/greeting/render", transport.posts().single().url)
 
             repeat(4) { prompton.useCaseRemoteBlocking("greeting") }
             assertEquals(1, transport.posts().size, "the answer is cached for the cache TTL")
@@ -108,7 +108,7 @@ class UseCasePromptClientTest {
         val transport =
             StubTransport { request ->
                 when {
-                    !(request.url.contains("/renders/") && request.url.endsWith("/render")) -> HttpResponse(304)
+                    !(request.url.contains("/prompts/") && request.url.endsWith("/render")) -> HttpResponse(304)
                     attempts.incrementAndGet() == 1 -> HttpResponse(200, emptyMap(), rawAnswer)
                     else -> HttpResponse(429, mapOf("retry-after" to "30"), "")
                 }
@@ -128,7 +128,7 @@ class UseCasePromptClientTest {
         val transport =
             StubTransport { request ->
                 when {
-                    !(request.url.contains("/renders/") && request.url.endsWith("/render")) -> HttpResponse(304)
+                    !(request.url.contains("/prompts/") && request.url.endsWith("/render")) -> HttpResponse(304)
                     attempts.incrementAndGet() == 1 -> HttpResponse(200, emptyMap(), rawAnswer)
                     else -> HttpResponse(429, mapOf("retry-after" to "30"), "")
                 }
@@ -155,7 +155,7 @@ class UseCasePromptClientTest {
         val transport =
             StubTransport { request ->
                 when {
-                    !(request.url.contains("/renders/") && request.url.endsWith("/render")) -> HttpResponse(304)
+                    !(request.url.contains("/prompts/") && request.url.endsWith("/render")) -> HttpResponse(304)
                     attempts.incrementAndGet() == 1 -> HttpResponse(200, emptyMap(), rawAnswer)
                     else -> throw java.io.IOException("connection refused")
                 }
@@ -188,7 +188,7 @@ class UseCasePromptClientTest {
         val transport =
             StubTransport { request ->
                 when {
-                    !(request.url.contains("/renders/") && request.url.endsWith("/render")) -> HttpResponse(304)
+                    !(request.url.contains("/prompts/") && request.url.endsWith("/render")) -> HttpResponse(304)
                     attempts.incrementAndGet() == 1 -> HttpResponse(200, emptyMap(), rawAnswer)
                     else -> throw java.io.IOException("connection refused")
                 }
@@ -204,7 +204,7 @@ class UseCasePromptClientTest {
     @Test
     fun `with nothing cached the failure reaches the caller`() {
         val transport = StubTransport { request ->
-            if (request.url.contains("/renders/") &&
+            if (request.url.contains("/prompts/") &&
                 request.url.endsWith("/render")
             ) {
                 HttpResponse(503, emptyMap(), "")
@@ -235,7 +235,7 @@ class UseCasePromptClientTest {
             """{"error":{"code":"not_found","message":"unknown prompt: nope","details":{"key":"nope"}}}"""
         val transport =
             StubTransport { request ->
-                if (request.url.contains("/renders/") &&
+                if (request.url.contains("/prompts/") &&
                     request.url.endsWith("/render")
                 ) {
                     HttpResponse(404, emptyMap(), notFound)
@@ -256,7 +256,7 @@ class UseCasePromptClientTest {
     fun `the smoke-test path sends the variables and is never cached`() {
         val rendered = rawAnswer.replace("Say hello to {{ name }}.", "Say hello to Ada.")
         val transport = StubTransport { request ->
-            if (request.url.contains("/renders/") &&
+            if (request.url.contains("/prompts/") &&
                 request.url.endsWith("/render")
             ) {
                 HttpResponse(200, emptyMap(), rendered)
@@ -275,7 +275,7 @@ class UseCasePromptClientTest {
             assertEquals(3, transport.posts().size, "the smoke test always asks the server")
             val body = Ptn.parseObject(transport.posts().last().body!!)
             assertEquals("Ada", ((body["variables"] as JsonObject)["name"] as JsonPrimitive).content)
-            assertNull(body["use_case"], "the prompt key lives in the path")
+            assertNull(body["prompt_key"], "the prompt key lives in the path")
             assertNull(body["key"], "the prompt key lives in the path")
         }
     }
@@ -284,7 +284,7 @@ class UseCasePromptClientTest {
     fun `prompt prompt errors map onto the sdk's own exceptions`() {
         val body = AtomicReference<HttpResponse>()
         val transport = StubTransport { request ->
-            if (request.url.contains("/renders/") &&
+            if (request.url.contains("/prompts/") &&
                 request.url.endsWith("/render")
             ) {
                 body.get()

@@ -32,7 +32,7 @@ includeBuild("../prompton-kotlin")
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.polimo:prompton-sdk:0.4.1")
+    implementation("dev.polimo:prompton-sdk:0.4.2")
 }
 ```
 
@@ -195,9 +195,9 @@ environment, and retries the same ids on `429` and `5xx`.
 | Field | Notes |
 |---|---|
 | `id` | UUIDv7, generated before the provider call; the idempotency key |
-| `use_case`, `model`, `status`, `started_at` | Required |
+| `prompt_key`, `model`, `status`, `started_at` | Required |
 | `kind` | `chat`, `text` or `embedding` |
-| `deployment_id`, `deployment_revision`, `prompt`, `prompt_version_id` | The pin that produced the call |
+| `deployment_id`, `deployment_revision`, `template`, `prompt_version_id` | The pin that produced the call |
 | `source` | `remote`, `disk`, `bundle` or `manual` — where the configuration came from |
 | `provider`, `model_used`, `upstream_provider` | Who actually served it |
 | `params` | The prompt params, with your per-call overrides layered on |

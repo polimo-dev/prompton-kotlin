@@ -45,7 +45,7 @@ class TrackWrapperTest {
             val record = prompton.capturedRecords().single()
             assertEquals("ok", field(record, "status"))
             assertEquals("stop", field(record, "stop_kind"))
-            assertEquals("greeting", field(record, "use_case"))
+            assertEquals("greeting", field(record, "prompt_key"))
             assertEquals("remote", field(record, "source"))
             assertEquals("Hello, Ada!", ((record["output"] as JsonObject)["content"] as JsonPrimitive).content)
         }
@@ -115,7 +115,7 @@ class TrackWrapperTest {
             val record = prompton.capturedRecords().single()
             assertEquals("0198f2a1-0000-7000-8000-00000000d001", field(record, "deployment_id"))
             assertEquals("3", field(record, "deployment_revision"))
-            assertEquals("default", field(record, "prompt"))
+            assertEquals("default", field(record, "template"))
             assertEquals("0198f2a1-0000-7000-8000-00000000a001", field(record, "prompt_version_id"))
             assertEquals("openrouter", field(record, "provider"))
             assertEquals("openai/gpt-4o-mini", field(record, "model"))
@@ -130,7 +130,7 @@ class TrackWrapperTest {
             useCase.trackBlocking { call -> call.result(Result(content = "안녕하세요")) }
 
             val record = prompton.capturedRecords().single()
-            assertEquals("ko", field(record, "prompt"))
+            assertEquals("ko", field(record, "template"))
             assertEquals("0198f2a1-0000-7000-8000-00000000a002", field(record, "prompt_version_id"))
         }
     }
@@ -145,7 +145,7 @@ class TrackWrapperTest {
             }
 
             val record = prompton.capturedRecords().single()
-            assertEquals("ko", field(record, "prompt"))
+            assertEquals("ko", field(record, "template"))
             assertEquals("0198f2a1-0000-7000-8000-00000000a002", field(record, "prompt_version_id"))
         }
     }
@@ -161,8 +161,8 @@ class TrackWrapperTest {
             useCase.trackBlocking { call -> call.result(Result(content = "Hello again")) }
 
             val records = prompton.capturedRecords()
-            assertEquals("ko", field(records[0], "prompt"))
-            assertEquals("default", field(records[1], "prompt"))
+            assertEquals("ko", field(records[0], "template"))
+            assertEquals("default", field(records[1], "template"))
         }
     }
 
@@ -176,7 +176,7 @@ class TrackWrapperTest {
             useCase.trackBlocking { call -> call.result(Result(content = "Hello")) }
 
             val record = prompton.capturedRecords().single()
-            assertEquals("default", field(record, "prompt"))
+            assertEquals("default", field(record, "template"))
             assertEquals("0198f2a1-0000-7000-8000-00000000a001", field(record, "prompt_version_id"))
         }
     }
@@ -247,7 +247,13 @@ class TrackWrapperTest {
                 prompton.log(mapOf("model" to "m", "status" to "ok", "started_at" to "2026-09-04T09:00:00Z"))
             }
             assertFailsWith<IllegalArgumentException> {
-                prompton.log(mapOf("use_case" to "greeting", "status" to "ok", "started_at" to "2026-09-04T09:00:00Z"))
+                prompton.log(
+                    mapOf(
+                        "prompt_key" to "greeting",
+                        "status" to "ok",
+                        "started_at" to "2026-09-04T09:00:00Z",
+                    ),
+                )
             }
             assertFailsWith<IllegalArgumentException> {
                 LogRecord(
@@ -263,7 +269,7 @@ class TrackWrapperTest {
     @Test
     fun `a manual log gets an id and a started_at when it has none`() {
         prompton().use { prompton ->
-            prompton.log(mapOf("use_case" to "greeting", "model" to "m", "status" to "ok"))
+            prompton.log(mapOf("prompt_key" to "greeting", "model" to "m", "status" to "ok"))
             val record = prompton.capturedRecords().single()
             assertEquals(36, field(record, "id")!!.length)
             assertTrue(field(record, "started_at")!!.endsWith("Z"))
