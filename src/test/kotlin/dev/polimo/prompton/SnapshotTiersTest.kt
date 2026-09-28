@@ -156,7 +156,7 @@ class SnapshotTiersTest {
         }
         assertFailsWith<UnsupportedSchemaVersionException> {
             UseCaseDocument.parse(
-                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 4", "\"schema_version\": 5"),
+                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 4", "\"schema_version\": 8"),
             )
         }
         assertFailsWith<PromptOnException> {

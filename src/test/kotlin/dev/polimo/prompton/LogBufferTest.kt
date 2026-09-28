@@ -7,6 +7,7 @@ import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -102,10 +103,75 @@ class LogBufferTest {
             val sent = batchOf(transport.lastPost()).single()
             val sdk = sent["sdk"] as JsonObject
             assertEquals("prompton-kotlin", (sdk["name"] as JsonPrimitive).content)
-            assertEquals("0.2.0", (sdk["version"] as JsonPrimitive).content)
+            assertEquals("0.4.0", (sdk["version"] as JsonPrimitive).content)
             val id = (sent["id"] as JsonPrimitive).content
             assertEquals('7', id[14], "the version nibble of a UUIDv7 is 7: $id")
             assertNotNull(UuidV7.timestampMillis(id))
+        }
+    }
+
+    @Test
+    fun `logEvents posts events beside an empty logs array`() {
+        val transport = transport { accepted(1) }
+        PromptOn(config(transport), FakeClock(startedAt)).use { prompton ->
+            prompton.logEvents(
+                listOf(
+                    mapOf(
+                        "trace_id" to "trace-1",
+                        "event_kind" to "tool_attempt",
+                        "status" to "ok",
+                        "tool_call_id" to "call_1",
+                        "tool_name" to "search_diary",
+                        "arguments" to mapOf("query" to "mood"),
+                        "result" to listOf(mapOf("title" to "today")),
+                        "completeness" to
+                            mapOf(
+                                "truncated" to false,
+                                "omitted" to false,
+                                "expected_events" to listOf("evt-1"),
+                                "unresolved_tool_calls" to emptyList<String>(),
+                            ),
+                    ),
+                ),
+                environment = "staging",
+            )
+
+            assertEquals("https://prompton.test/api/v1/logs?environment=staging", transport.lastPost().url)
+            val body = dev.polimo.prompton.internal.Ptn
+                .parseObject(transport.lastPost().body!!)
+            assertEquals(0, (body["logs"] as JsonArray).size)
+            val event = (body["events"] as JsonArray).single() as JsonObject
+            assertTrue(UuidV7.timestampMillis((event["event_id"] as JsonPrimitive).content) != null)
+            assertEquals("2026-09-04T09:00:00Z", (event["observed_at"] as JsonPrimitive).content)
+            val sdk = event["sdk"] as JsonObject
+            assertEquals("prompton-kotlin", (sdk["name"] as JsonPrimitive).content)
+            assertEquals("0.4.0", (sdk["version"] as JsonPrimitive).content)
+            val metadataSdk = ((event["metadata"] as JsonObject)["sdk"] as JsonObject)
+            assertEquals("0.4.0", (metadataSdk["version"] as JsonPrimitive).content)
+            val arguments = event["arguments"] as JsonObject
+            assertEquals("mood", (arguments["query"] as JsonPrimitive).content)
+        }
+    }
+
+    @Test
+    fun `logEvents validates required fields and argument shape`() {
+        val config = config(transport { accepted(1) }).copy(mode = PromptOnMode.TEST)
+        PromptOn(config, FakeClock(startedAt)).use { prompton ->
+            assertFailsWith<IllegalArgumentException> {
+                prompton.logEvents(listOf(mapOf("event_kind" to "completion", "status" to "ok")))
+            }
+            assertFailsWith<IllegalArgumentException> {
+                prompton.logEvents(
+                    listOf(
+                        mapOf(
+                            "trace_id" to "trace-1",
+                            "event_kind" to "tool_attempt",
+                            "status" to "ok",
+                            "arguments" to listOf("not", "object"),
+                        ),
+                    ),
+                )
+            }
         }
     }
 

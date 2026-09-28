@@ -2,6 +2,7 @@ package dev.polimo.prompton.conformance
 
 import dev.polimo.prompton.MissingVariableException
 import dev.polimo.prompton.PromptMessage
+import dev.polimo.prompton.PromptOnException
 import dev.polimo.prompton.Resolver
 import dev.polimo.prompton.UnknownPromptException
 import dev.polimo.prompton.UnknownUseCaseException
@@ -18,6 +19,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 
 /** Runs every case of `conformance/use_case.json`: the use case algorithm the server prompt endpoint runs. */
 class UseCaseConformanceTest {
@@ -70,6 +73,100 @@ class UseCaseConformanceTest {
         assertEquals(15, executed)
     }
 
+    @Test
+    fun `native tool messages survive rendering as whole provider maps`() {
+        val document = UseCaseDocument.parse(
+            """
+            {"schema_version": 7, "project": "p", "environment": "production",
+             "use_cases": {"tool_chat": {"id": "u1", "kind": "chat", "default_params": {}}},
+             "deployments": {"tool_chat": {"id": "d1", "revision": 1, "model_id": "m1",
+                                          "params": {}, "provider_options": {},
+                                          "prompt_pins": {"default": "v1"}}},
+             "prompt_versions": {"v1": {"id": "v1", "number": 1, "engine": "liquid",
+                "messages": [
+                  {"role":"system","content":"Continue with {{ input }}."},
+                  {"role":"assistant","tool_calls":[{"id":"call_search","type":"function","function":{"name":"search","arguments":"{\"q\":\"diary\"}"}}],"content":null},
+                  {"role":"tool","tool_call_id":"call_search","content":[{"type":"text","text":"found"}]},
+                  {"role":"user","content":"Next: {{ input }}"}
+                ]}},
+             "models": {"m1": {"id": "m1", "provider": "openrouter", "model_id": "openai/gpt-4o-mini",
+                               "provider_options": {}, "capabilities": ["tools"], "status": "active"}}
+            }
+            """.trimIndent(),
+        )
+        val actual =
+            JsonArray(
+                Resolver.resolve(document, "tool_chat").messages(mapOf("input" to "continue")).map { messageJson(it) },
+            )
+        val expected =
+            dev.polimo.prompton.internal.Ptn.parseObject(
+                """
+                {"messages":[
+                  {"role":"system","content":"Continue with continue."},
+                  {"role":"assistant","tool_calls":[{"id":"call_search","type":"function","function":{"name":"search","arguments":"{\"q\":\"diary\"}"}}],"content":null},
+                  {"role":"tool","tool_call_id":"call_search","content":[{"type":"text","text":"found"}]},
+                  {"role":"user","content":"Next: continue"}
+                ]}
+                """.trimIndent(),
+            )["messages"]!!
+        assertEquals(
+            dev.polimo.prompton.internal.Ptn
+                .canonicalJson(expected),
+            dev.polimo.prompton.internal.Ptn
+                .canonicalJson(actual),
+        )
+    }
+
+    @Test
+    fun `prompt tools become provider params and strip authoring metadata`() {
+        val document = UseCaseDocument.parse(
+            """
+            {"schema_version": 7, "project": "p", "environment": "production",
+             "use_cases": {"tool_chat": {"id": "u1", "kind": "chat", "default_params": {}}},
+             "deployments": {"tool_chat": {"id": "d1", "revision": 1, "model_id": "m1",
+                                          "params": {}, "provider_options": {},
+                                          "prompt_pins": {"default": "v1"}}},
+             "prompt_versions": {"v1": {"id": "v1", "number": 1, "engine": "liquid",
+                "messages": [{"role":"user","content":"hi"}],
+                "tools": {"definitions": [{"type":"function","function":{"name":"search"},
+                                             "output_schema":{"type":"object"},"output_examples":[{"ok":true}]}],
+                          "tool_choice": {"type":"function","function":{"name":"search"}},
+                          "parallel_tool_calls": false}}},
+             "models": {"m1": {"id": "m1", "provider": "openrouter", "model_id": "openai/gpt-4o-mini",
+                               "provider_options": {}, "capabilities": ["tools"], "status": "active"}}
+            }
+            """.trimIndent(),
+        )
+        val params = Resolver.resolve(document, "tool_chat").params
+
+        @Suppress("UNCHECKED_CAST")
+        val tool = (params["tools"] as List<Map<String, Any?>>).single()
+        assertFalse(tool.containsKey("output_schema"))
+        assertFalse(tool.containsKey("output_examples"))
+        assertEquals(mapOf("type" to "function", "function" to mapOf("name" to "search")), tool)
+        assertEquals(false, params["parallel_tool_calls"])
+    }
+
+    @Test
+    fun `prompt tools conflict with different legacy provider params`() {
+        val document = UseCaseDocument.parse(
+            """
+            {"schema_version": 7, "project": "p", "environment": "production",
+             "use_cases": {"tool_chat": {"id": "u1", "kind": "chat", "default_params": {}}},
+             "deployments": {"tool_chat": {"id": "d1", "revision": 1, "model_id": "m1",
+                                          "params": {"parallel_tool_calls": true}, "provider_options": {},
+                                          "prompt_pins": {"default": "v1"}}},
+             "prompt_versions": {"v1": {"id": "v1", "number": 1, "engine": "liquid",
+                "messages": [{"role":"user","content":"hi"}],
+                "tools": {"parallel_tool_calls": false}}},
+             "models": {"m1": {"id": "m1", "provider": "openrouter", "model_id": "openai/gpt-4o-mini",
+                               "provider_options": {}, "capabilities": ["tools"], "status": "active"}}
+            }
+            """.trimIndent(),
+        )
+        assertFailsWith<PromptOnException> { Resolver.resolve(document, "tool_chat") }
+    }
+
     private fun describe(
         useCase: UseCase,
         hasVariables: Boolean,
@@ -109,12 +206,17 @@ class UseCaseConformanceTest {
         return JsonObject(fields)
     }
 
-    private fun messageJson(message: PromptMessage): JsonObject =
-        buildJsonObject {
-            put("role", message.role)
-            put("content", message.content)
-            message.name?.let { put("name", it) }
-        }
+    private fun messageJson(message: PromptMessage): JsonObject {
+        val fields = LinkedHashMap<String, JsonElement>()
+        fields.putAll(message.extra.mapValues { element(it.value) })
+        message.type?.let { fields["type"] = JsonPrimitive(it) }
+        if (message.role.isNotBlank()) fields["role"] = JsonPrimitive(message.role)
+        if (message.hasContent) fields["content"] = element(message.contentValue)
+        message.name?.let { fields["name"] = JsonPrimitive(it) }
+        message.toolCallId?.let { fields["tool_call_id"] = JsonPrimitive(it) }
+        if (message.toolCalls.isNotEmpty()) fields["tool_calls"] = JsonArray(message.toolCalls.map { element(it) })
+        return JsonObject(fields)
+    }
 
     private fun nullable(value: String?): JsonElement = value?.let { JsonPrimitive(it) } ?: JsonNull
 

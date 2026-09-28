@@ -32,7 +32,7 @@ includeBuild("../prompton-kotlin")
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.polimo:prompton-sdk:0.2.0")
+    implementation("dev.polimo:prompton-sdk:0.4.0")
 }
 ```
 
@@ -252,3 +252,9 @@ PTN_HOST=http://localhost:4000 PTN_API_KEY=ptn_sdkfixture_… ./gradlew test
 - [Runtime API](https://docs.prompton.ai/api) — `GET /use-cases`, `POST /use-cases/{key}/prompt`,
   `POST /logs`
 - [Agent reference](https://docs.prompton.ai/agent) — the whole contract on one page
+
+## Prompt tools and trace events
+
+Schema 7 prompt versions may include a `tools` block with OpenAI-compatible function tool definitions plus optional `tool_choice` and `parallel_tool_calls`. The SDK merges those into the provider params it returns and strips authoring-only `output_schema` / `output_examples` before the provider request body is built. The SDK never calls tools itself.
+
+Use `logEvents` to submit observed tool attempts and completion events to the same monitoring endpoint when your application has executed or rejected tool calls. Events require `trace_id`, `event_kind`, and `status`; the SDK fills `event_id`, `observed_at`, SDK identity, and `metadata.sdk.version` when they are absent.

@@ -181,7 +181,7 @@ internal object Resolver {
             model = model?.modelId,
             modelId = model?.id,
             provider = model?.provider,
-            params = mergeShallow(useCase.defaultParams, deployment.params),
+            params = mergeTools(mergeShallow(useCase.defaultParams, deployment.params), version?.tools),
             providerOptions = mergeShallow(model?.providerOptions, deployment.providerOptions),
             promptVersionId = version?.id,
             promptVersionNumber = version?.number,
@@ -207,5 +207,34 @@ internal object Resolver {
         val merged = LinkedHashMap<String, Any?>(base ?: emptyMap())
         override?.forEach { (key, value) -> merged[key] = value }
         return merged
+    }
+
+    internal fun mergeTools(
+        params: Map<String, Any?>,
+        tools: Map<String, Any?>?,
+    ): Map<String, Any?> {
+        val merged = LinkedHashMap(params)
+        val provider = providerToolParams(tools)
+        provider.forEach { (key, value) ->
+            if (merged.containsKey(key) && merged[key] != value) {
+                throw PromptOnException("prompt tools conflict with params.$key")
+            }
+            merged[key] = value
+        }
+        return merged
+    }
+
+    private fun providerToolParams(tools: Map<String, Any?>?): Map<String, Any?> {
+        if (tools.isNullOrEmpty()) return emptyMap()
+        val out = LinkedHashMap<String, Any?>()
+
+        @Suppress("UNCHECKED_CAST")
+        val definitions = tools["definitions"] as? List<Map<String, Any?>>
+        if (!definitions.isNullOrEmpty()) {
+            out["tools"] = definitions.map { it - setOf("output_schema", "output_examples") }
+        }
+        if (tools.containsKey("tool_choice")) out["tool_choice"] = tools["tool_choice"]
+        if (tools.containsKey("parallel_tool_calls")) out["parallel_tool_calls"] = tools["parallel_tool_calls"]
+        return out
     }
 }

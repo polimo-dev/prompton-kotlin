@@ -4,9 +4,15 @@ package dev.polimo.prompton
 public data class PromptMessage
     @JvmOverloads
     constructor(
-        val role: String,
+        val role: String = "",
         val content: String,
         val name: String? = null,
+        val type: String? = null,
+        val contentValue: Any? = content,
+        val hasContent: Boolean = true,
+        val toolCallId: String? = null,
+        val toolCalls: List<Map<String, Any?>> = emptyList(),
+        val extra: Map<String, Any?> = emptyMap(),
     )
 
 /** What a use case asks the provider for. */
@@ -110,6 +116,7 @@ public data class PromptVersion(
     val number: Int?,
     val engine: TemplateEngine,
     val messages: List<PromptMessage>?,
+    val tools: Map<String, Any?>,
     val textTemplate: String?,
 )
 

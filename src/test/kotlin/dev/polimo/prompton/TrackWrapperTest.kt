@@ -197,6 +197,41 @@ class TrackWrapperTest {
         }
 
     @Test
+    fun `tracked input keeps the tools and tool policies sent to the provider`() {
+        prompton().use { prompton ->
+            val useCase = prompton.useCase("greeting")
+            val messages = useCase.messages(mapOf("name" to "Ada"))
+            val tools =
+                listOf(
+                    mapOf(
+                        "type" to "function",
+                        "function" to mapOf("name" to "lookup_diary", "parameters" to mapOf("type" to "object")),
+                    ),
+                )
+
+            useCase.trackBlocking(
+                TrackMeta(
+                    inputMessages = messages,
+                    params =
+                        mapOf(
+                            "tools" to tools,
+                            "tool_choice" to mapOf("type" to "function", "function" to mapOf("name" to "lookup_diary")),
+                            "parallel_tool_calls" to false,
+                        ),
+                ),
+            ) { call ->
+                call.result(Result(content = "Hello"))
+            }
+
+            val input = prompton.capturedRecords().single()["input"] as JsonObject
+            assertEquals(1, (input["tools"] as kotlinx.serialization.json.JsonArray).size)
+            val choice = input["tool_choice"] as JsonObject
+            assertEquals("function", (choice["type"] as JsonPrimitive).content)
+            assertEquals("false", (input["parallel_tool_calls"] as JsonPrimitive).content)
+        }
+    }
+
+    @Test
     fun `error kinds map from provider http statuses`() {
         assertEquals(ErrorKind.RATE_LIMITED, ErrorKind.ofStatus(429))
         assertEquals(ErrorKind.HTTP_4XX, ErrorKind.ofStatus(400))

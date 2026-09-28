@@ -27,7 +27,7 @@ class ConfigTest {
         assertEquals("https://app.prompton.ai/api/v1", config.baseUrl)
         assertEquals("production", config.environment)
         assertEquals(10_000, config.cacheTtl.inWholeMilliseconds)
-        assertEquals("prompton-kotlin/0.2.0", config.userAgent)
+        assertEquals("prompton-kotlin/0.4.0", config.userAgent)
         assertEquals(PromptOnMode.LIVE, config.mode)
         assertTrue(config.diskCacheEnabled)
     }

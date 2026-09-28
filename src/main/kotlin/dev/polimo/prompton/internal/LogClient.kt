@@ -22,8 +22,22 @@ internal class LogClient(
     fun post(
         environment: String,
         records: List<JsonObject>,
+    ): BatchOutcome = postEnvelope(environment, records, emptyList())
+
+    fun postEvents(
+        environment: String,
+        events: List<JsonObject>,
+    ): BatchOutcome = postEnvelope(environment, emptyList(), events)
+
+    private fun postEnvelope(
+        environment: String,
+        records: List<JsonObject>,
+        events: List<JsonObject>,
     ): BatchOutcome {
-        val body = Ptn.canonicalJson(JsonObject(mapOf("logs" to JsonArray(records))))
+        val bodyFields = LinkedHashMap<String, kotlinx.serialization.json.JsonElement>()
+        bodyFields["logs"] = JsonArray(records)
+        if (events.isNotEmpty()) bodyFields["events"] = JsonArray(events)
+        val body = Ptn.canonicalJson(JsonObject(bodyFields))
         val url =
             "${config.baseUrl}/logs?environment=" +
                 URLEncoder.encode(environment, StandardCharsets.UTF_8)

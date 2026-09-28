@@ -8,7 +8,9 @@ import kotlinx.serialization.json.JsonPrimitive
 /** A use case document whose `schema_version` this SDK cannot read. */
 public class UnsupportedSchemaVersionException(
     public val schemaVersion: Int,
-) : PromptOnException("unsupported use case document schema_version $schemaVersion; this SDK reads version 4")
+) : PromptOnException(
+        "unsupported use case document schema_version $schemaVersion; this SDK reads version ${UseCaseDocument.SCHEMA_VERSION}",
+    )
 
 /**
  * A decoded `GET /use-cases` document (schema v4): everything live in one environment.
@@ -40,7 +42,7 @@ public class UseCaseDocument internal constructor(
     public fun toJson(): String = source
 
     public companion object {
-        public const val SCHEMA_VERSION: Int = 4
+        public const val SCHEMA_VERSION: Int = 7
 
         /** Decodes a `GET /use-cases` body. */
         public fun parse(json: String): UseCaseDocument = decode(Ptn.parseObject(json), json)
@@ -53,7 +55,7 @@ public class UseCaseDocument internal constructor(
             val schemaVersion =
                 schemaVersionOf(root["schema_version"])
                     ?: throw PromptOnException("use case document schema_version must be integer 4")
-            if (schemaVersion != SCHEMA_VERSION) throw UnsupportedSchemaVersionException(schemaVersion)
+            if (schemaVersion !in 4..SCHEMA_VERSION) throw UnsupportedSchemaVersionException(schemaVersion)
 
             val useCasesRaw =
                 Ptn.asObject(root["use_cases"])
@@ -182,12 +184,24 @@ public class UseCaseDocument internal constructor(
                 messages =
                     Ptn.asArray(raw["messages"])?.mapNotNull { element ->
                         val message = Ptn.asObject(element) ?: return@mapNotNull null
+                        val native = nativeMap(element)
+                        val contentElement = message["content"]
+
+                        @Suppress("UNCHECKED_CAST")
+                        val calls = native["tool_calls"] as? List<Map<String, Any?>> ?: emptyList()
                         PromptMessage(
                             role = Ptn.asString(message["role"]) ?: "user",
                             content = Ptn.asString(message["content"]) ?: "",
                             name = Ptn.asString(message["name"]),
+                            type = Ptn.asString(message["type"]),
+                            contentValue = Ptn.toNative(contentElement),
+                            hasContent = message.containsKey("content"),
+                            toolCallId = Ptn.asString(message["tool_call_id"]),
+                            toolCalls = calls,
+                            extra = native - setOf("role", "type", "content", "name", "tool_call_id", "tool_calls"),
                         )
                     },
+                tools = nativeMap(raw["tools"]),
                 textTemplate = Ptn.asString(raw["text_template"]),
             )
 

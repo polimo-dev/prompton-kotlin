@@ -85,8 +85,17 @@ public data class LogInput
         val variables: Map<String, Any?>? = null,
         val messages: List<PromptMessage>? = null,
         val text: String? = null,
+        val tools: List<Any?>? = null,
+        val toolChoice: Any? = null,
+        val parallelToolCalls: Boolean? = null,
     ) {
-        public fun isEmpty(): Boolean = variables == null && messages == null && text == null
+        public fun isEmpty(): Boolean =
+            variables == null &&
+                messages == null &&
+                text == null &&
+                tools == null &&
+                toolChoice == null &&
+                parallelToolCalls == null
     }
 
 /** What came back. */
@@ -202,6 +211,9 @@ public data class LogRecord
                 fields["messages"] = JsonArray(messages.map { messageJson(it) })
             }
             input.text?.let { fields["text"] = JsonPrimitive(it) }
+            input.tools?.let { fields["tools"] = JsonArray(it.map { tool -> Ptn.toElement(tool) }) }
+            input.toolChoice?.let { fields["tool_choice"] = Ptn.toElement(it) }
+            input.parallelToolCalls?.let { fields["parallel_tool_calls"] = JsonPrimitive(it) }
             return JsonObject(fields)
         }
 
@@ -233,9 +245,15 @@ public data class LogRecord
 
         private fun messageJson(message: PromptMessage): JsonObject {
             val fields = LinkedHashMap<String, JsonElement>()
-            fields["role"] = JsonPrimitive(message.role)
-            fields["content"] = JsonPrimitive(message.content)
+            fields.putAll(message.extra.mapValues { Ptn.toElement(it.value) })
+            if (message.type != null) fields["type"] = JsonPrimitive(message.type)
+            if (message.role.isNotBlank()) fields["role"] = JsonPrimitive(message.role)
+            if (message.hasContent) fields["content"] = Ptn.toElement(message.contentValue)
             message.name?.let { fields["name"] = JsonPrimitive(it) }
+            message.toolCallId?.let { fields["tool_call_id"] = JsonPrimitive(it) }
+            if (message.toolCalls.isNotEmpty()) {
+                fields["tool_calls"] = JsonArray(message.toolCalls.map { Ptn.toElement(it) })
+            }
             return JsonObject(fields)
         }
 

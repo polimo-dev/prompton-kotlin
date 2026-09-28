@@ -115,6 +115,7 @@ public class PromptOn internal constructor(
         if (config.mode == PromptOnMode.TEST) null else LogBuffer(config, clock, logs::post)
 
     private val captured: MutableList<JsonObject> = Collections.synchronizedList(mutableListOf())
+    private val capturedEvents: MutableList<JsonObject> = Collections.synchronizedList(mutableListOf())
     private val useCasePromptCache = ConcurrentHashMap<String, Pair<Instant, ServerUseCasePrompt>>()
     private val resolveNextAttempt = ConcurrentHashMap<String, Instant>()
     private val resolveFailures = ConcurrentHashMap<String, Int>()
@@ -292,6 +293,73 @@ public class PromptOn internal constructor(
         enqueue(JsonObject(fields), Ptn.asString(fields["use_case"]), environment)
     }
 
+    /**
+     * Sends tool-attempt and completion trace events to the monitoring endpoint.
+     *
+     * The SDK records observations only: it does not execute tools and does not infer event rows
+     * from provider `tool_calls`. Missing `event_id`, `observed_at`, `sdk`, and
+     * `metadata.sdk.version` are filled before submission.
+     */
+    @JvmOverloads
+    public fun logEvents(
+        events: List<Map<String, Any?>>,
+        environment: String = config.environment,
+    ) {
+        val prepared = prepareEvents(events)
+        if (config.mode == PromptOnMode.TEST) {
+            synchronized(capturedEvents) { capturedEvents.addAll(prepared) }
+            return
+        }
+        if (config.mode == PromptOnMode.OFFLINE || config.apiKey.isNullOrBlank()) return
+        val outcome = logs.postEvents(environment, prepared)
+        if (outcome !is dev.polimo.prompton.internal.BatchOutcome.Accepted) {
+            throw PromptOnException("event log submission failed: $outcome")
+        }
+    }
+
+    private fun prepareEvents(events: List<Map<String, Any?>>): List<JsonObject> {
+        require(events.size <= 500) { "logEvents accepts at most 500 events per request" }
+        return events.map { event ->
+            val fields = LinkedHashMap<String, Any?>(event)
+            val traceId = fields["trace_id"] as? String
+            require(!traceId.isNullOrBlank()) { "event is missing the required field trace_id" }
+            val kind = fields["event_kind"] as? String
+            require(kind == "tool_attempt" || kind == "completion") {
+                "event_kind must be tool_attempt or completion"
+            }
+            val status = fields["status"] as? String
+            require(
+                status in setOf(
+                    "started",
+                    "ok",
+                    "error",
+                    "denied",
+                    "cancelled",
+                    "timeout",
+                    "missing",
+                    "incomplete",
+                ),
+            ) { "event status is not supported: $status" }
+            require(fields["arguments"] == null || fields["arguments"] is Map<*, *>) {
+                "event arguments must be a JSON object"
+            }
+            fields.putIfAbsent("event_id", UuidV7.generate())
+            fields.putIfAbsent("observed_at", clock.now().toString())
+            fields.putIfAbsent("sdk", SdkInfo.CURRENT.asMap())
+            fields["metadata"] = metadataWithSdkVersion(fields["metadata"])
+            Ptn.toObject(fields)
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun metadataWithSdkVersion(original: Any?): Map<String, Any?> {
+        val metadata = LinkedHashMap<String, Any?>((original as? Map<String, Any?>).orEmpty())
+        val sdk = LinkedHashMap<String, Any?>((metadata["sdk"] as? Map<String, Any?>).orEmpty())
+        sdk.putIfAbsent("version", PromptOnConfig.SDK_VERSION)
+        metadata["sdk"] = sdk
+        return metadata
+    }
+
     /** Sends the queue now and waits for the result. */
     @JvmOverloads
     public fun flushBlocking(timeout: Duration = 10.seconds): FlushResult =
@@ -310,6 +378,14 @@ public class PromptOn internal constructor(
     /** Clears what [capturedRecords] returns. */
     public fun clearCapturedRecords() {
         synchronized(captured) { captured.clear() }
+    }
+
+    /** In [PromptOnMode.TEST] the trace events that would have been sent, in order. */
+    public fun capturedEvents(): List<JsonObject> = synchronized(capturedEvents) { capturedEvents.toList() }
+
+    /** Clears what [capturedEvents] returns. */
+    public fun clearCapturedEvents() {
+        synchronized(capturedEvents) { capturedEvents.clear() }
     }
 
     // -------------------------------------------------------------------
@@ -409,6 +485,12 @@ public class PromptOn internal constructor(
                         variables = meta.variables,
                         messages = meta.inputMessages,
                         text = meta.inputText,
+                        tools = Resolver.mergeShallow(useCase.params, meta.params)["tools"] as? List<Any?>,
+                        toolChoice = Resolver.mergeShallow(useCase.params, meta.params)["tool_choice"],
+                        parallelToolCalls = Resolver.mergeShallow(
+                            useCase.params,
+                            meta.params,
+                        )["parallel_tool_calls"] as? Boolean,
                     ),
                 output =
                     result?.let { LogOutput(content = it.content, toolCalls = it.toolCalls) },
@@ -670,17 +752,28 @@ public class PromptOn internal constructor(
             model = Ptn.asString(body["model"]),
             modelId = Ptn.asString(body["model_id"]),
             provider = Ptn.asString(body["provider"]),
-            params = map("params"),
+            params = Resolver.mergeTools(map("params"), map("tools")),
             providerOptions = map("provider_options"),
             promptVersionId = Ptn.asString(version?.get("id")),
             promptVersionNumber = Ptn.asInt(version?.get("number")),
             messages =
                 Ptn.asArray(body["messages"])?.mapNotNull { element ->
                     val message = Ptn.asObject(element) ?: return@mapNotNull null
+                    val native = Ptn.toNativeMap(element)
+                    val contentElement = message["content"]
+
+                    @Suppress("UNCHECKED_CAST")
+                    val calls = native["tool_calls"] as? List<Map<String, Any?>> ?: emptyList()
                     PromptMessage(
                         role = Ptn.asString(message["role"]) ?: "user",
                         content = Ptn.asString(message["content"]) ?: "",
                         name = Ptn.asString(message["name"]),
+                        type = Ptn.asString(message["type"]),
+                        contentValue = Ptn.toNative(contentElement),
+                        hasContent = message.containsKey("content"),
+                        toolCallId = Ptn.asString(message["tool_call_id"]),
+                        toolCalls = calls,
+                        extra = native - setOf("role", "type", "content", "name", "tool_call_id", "tool_calls"),
                     )
                 },
             text = Ptn.asString(body["text"]),
