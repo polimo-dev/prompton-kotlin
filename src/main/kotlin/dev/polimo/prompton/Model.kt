@@ -15,7 +15,7 @@ public data class PromptMessage
         val extra: Map<String, Any?> = emptyMap(),
     )
 
-/** What a use case asks the provider for. */
+/** What a prompt asks the provider for. */
 public enum class UseCaseKind {
     CHAT,
     TEXT,
@@ -30,7 +30,7 @@ public enum class UseCaseKind {
     }
 }
 
-/** Where the use case document behind a call came from. */
+/** Where the prompt document behind a call came from. */
 public enum class UseCaseSource {
     REMOTE,
     DISK,
@@ -61,7 +61,7 @@ public enum class PayloadMode {
     }
 }
 
-/** The use case's payload policy, as the use case document carries it. */
+/** The prompt's payload policy, as the prompt document carries it. */
 public data class PayloadPolicy
     @JvmOverloads
     constructor(
@@ -78,7 +78,7 @@ public data class PayloadPolicy
         }
     }
 
-/** One declared input variable of a use case. */
+/** One declared input variable of a prompt. */
 public data class InputVariable
     @JvmOverloads
     constructor(
@@ -88,7 +88,7 @@ public data class InputVariable
         val description: String? = null,
     )
 
-/** A use case as the use case document describes it. */
+/** A prompt as the prompt document describes it. */
 public data class UseCaseEntry(
     val id: String?,
     val key: String,

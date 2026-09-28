@@ -57,7 +57,7 @@ class LiveFixtureIntegrationTest {
         environment = environment,
         cacheTtl = 10.seconds,
         pollingEnabled = false,
-        diskCachePath = tempDir.resolve("use-cases-$environment.json"),
+        diskCachePath = tempDir.resolve("prompts-$environment.json"),
         transport = transport,
     )
 
@@ -73,15 +73,15 @@ class LiveFixtureIntegrationTest {
             assertEquals(UseCaseSource.REMOTE, info.source)
             assertNotNull(info.etag)
             assertTrue(info.etag!!.contains("sha256-"), info.etag!!)
-            assertTrue(info.useCases >= 3, "expected the fixture's three use cases, got ${info.useCases}")
+            assertTrue(info.useCases >= 3, "expected the fixture's three prompts, got ${info.useCases}")
 
-            val before = transport.statuses("/use-cases").size
+            val before = transport.statuses("/renders").size
             clock.advanceMillis(11_000)
             prompton.useCase("greeting")
-            await("the revalidation") { transport.statuses("/use-cases").size > before }
+            await("the revalidation") { transport.statuses("/renders").size > before }
             settle()
 
-            val statuses = transport.statuses("/use-cases")
+            val statuses = transport.statuses("/renders")
             assertEquals(200, statuses.first(), "the first fetch carries the document")
             assertTrue(
                 statuses.drop(1).all { it == 304 },
@@ -93,7 +93,7 @@ class LiveFixtureIntegrationTest {
             // The disk tier now holds the same document, so a second process starts warm.
             assertTrue(
                 java.nio.file.Files
-                    .exists(tempDir.resolve("use-cases-production.json")),
+                    .exists(tempDir.resolve("prompts-production.json")),
             )
         }
     }
@@ -109,12 +109,12 @@ class LiveFixtureIntegrationTest {
     }
 
     @Test
-    fun `local useCase matches the server for a text use case`() {
+    fun `local useCase matches the server for a text prompt`() {
         assertMatchesServer("summarize", prompt = null, variables = mapOf("items" to listOf("alpha", "beta", "gamma")))
     }
 
     @Test
-    fun `local useCase matches the server for an embedding use case`() {
+    fun `local useCase matches the server for an embedding prompt`() {
         val transport = transport()
         PromptOn(config(transport), FakeClock(instant = Instant.now())).use { prompton ->
             prompton.refreshBlocking()
@@ -293,8 +293,8 @@ class LiveFixtureIntegrationTest {
             assertEquals(server.provider, local.provider, "provider")
             assertEquals(server.deploymentId, local.deploymentId, "deployment id")
             assertEquals(server.deploymentRevision, local.deploymentRevision, "deployment revision")
-            assertEquals(server.prompt, local.prompt, "prompt")
-            assertEquals(server.promptNames, local.promptNames, "prompt_names")
+            assertEquals(server.prompt, local.prompt, "template")
+            assertEquals(server.promptNames, local.promptNames, "template_names")
             assertEquals(server.promptVersionId, local.promptVersionId, "prompt version id")
             assertEquals(server.promptVersionNumber, local.promptVersionNumber, "prompt version number")
             assertEquals(server.params, local.params, "params")

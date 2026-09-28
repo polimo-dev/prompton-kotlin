@@ -7,25 +7,25 @@ public open class PromptOnException(
 ) : RuntimeException(message, cause)
 
 /**
- * No use case document is available from any tier: PromptOn is unreachable and neither the disk
+ * No prompt document is available from any tier: PromptOn is unreachable and neither the disk
  * cache nor a bundled document is usable for this project and environment.
  */
 public class UseCaseDocumentUnavailableException(
     public val environment: String,
     message: String =
-        "no PromptOn use case document for environment '$environment': the server is unreachable and " +
+        "no PromptOn prompt document for environment '$environment': the server is unreachable and " +
             "nothing is cached on disk or bundled",
 ) : PromptOnException(message)
 
-/** The use case document has no use case with this key. */
+/** The prompt document has no prompt with this key. */
 public class UnknownUseCaseException(
     public val useCase: String,
-) : PromptOnException("unknown use case: $useCase")
+) : PromptOnException("unknown prompt: $useCase")
 
-/** The use case exists but has no live deployment in this environment. */
+/** The prompt exists but has no live deployment in this environment. */
 public class UnresolvedUseCaseException(
     public val useCase: String,
-) : PromptOnException("use case '$useCase' has no live deployment in this environment")
+) : PromptOnException("prompt '$useCase' has no live deployment in this environment")
 
 /**
  * The live deployment pins no prompt version under the requested name. There is never a silent

@@ -27,7 +27,7 @@ class SnapshotTiersTest {
         project: String? = "fixture",
     ) = PromptOnConfig(
         apiKey = "ptn_fixture_secret",
-        host = "https://prompton.test",
+        host = "https://renderon.test",
         environment = environment,
         project = project,
         cacheTtl = 10.seconds,
@@ -82,7 +82,7 @@ class SnapshotTiersTest {
 
     @Test
     fun `with no disk cache the bundle resolves`() {
-        val bundle = tempDir.resolve("use-cases.production.json")
+        val bundle = tempDir.resolve("prompts.production.json")
         Files.writeString(bundle, SnapshotFixtures.useCaseDocument())
 
         PromptOn(config(downTransport, bundle = bundle), FakeClock()).use { prompton ->

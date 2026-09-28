@@ -382,10 +382,10 @@ public data class TrackMeta
         val endUserRef: String? = null,
         val traceId: String? = null,
         val sequence: Int? = null,
-        /** Free-form tags kept for filtering in the log; use case selection never looks at them. */
+        /** Free-form tags kept for filtering in the log; prompt selection never looks at them. */
         val context: Map<String, Any?> = emptyMap(),
         val metadata: Map<String, Any?> = emptyMap(),
-        /** The params actually sent, layered over the use case's params. */
+        /** The params actually sent, layered over the prompt's params. */
         val params: Map<String, Any?>? = null,
     )
 

@@ -136,7 +136,7 @@ class TrackWrapperTest {
     }
 
     @Test
-    fun `a named prompt rendered from the base use case is recorded as evidence`() {
+    fun `a named prompt rendered from the base prompt is recorded as evidence`() {
         prompton().use { prompton ->
             val useCase = prompton.useCase("greeting")
             val messages = useCase.messages(mapOf("name" to "Ada"), prompt = "ko")

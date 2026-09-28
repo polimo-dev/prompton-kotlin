@@ -1,14 +1,14 @@
 # PromptOn Kotlin SDK
 
 PromptOn is a control plane for the prompts and models your app uses. Every place your code calls an
-LLM becomes a **use case**, and for each use case and environment PromptOn holds one **pin**: a
+LLM becomes a **prompt**, and for each prompt and environment PromptOn holds one **pin**: a
 prompt version, one model, and its parameters.
 
-This SDK fetches that use case document, fills the pinned prompt with your call's variables, and
+This SDK fetches that prompt document, fills the pinned prompt with your call's variables, and
 sends back a monitoring log after you have called the provider. **You call the provider yourself**,
 with your own key and your own HTTP client — PromptOn is config-fetch, not a proxy, so it is never in
 the request path and never sees your provider key. If PromptOn is down your app keeps running on the
-last use case document it received.
+last prompt document it received.
 
 ```
 useCase("greeting")        ──▶  UseCase(model, params, provider options, pinned prompt)
@@ -32,7 +32,7 @@ includeBuild("../prompton-kotlin")
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.polimo:prompton-sdk:0.4.0")
+    implementation("dev.polimo:prompton-sdk:0.4.1")
 }
 ```
 
@@ -74,13 +74,13 @@ default**.
 | `host` | `PTN_HOST` | `https://app.prompton.ai` | The SDK appends `/api/v1` itself |
 | `environment` | `PTN_ENVIRONMENT` | `production` | Which environment this process reads. Also the guard on cached and bundled documents |
 | `project` | `PTN_PROJECT` | read from the API key | Names the disk cache file and guards cached documents |
-| `cacheTtl` | | 10 s | How long a use case document is served without revalidating |
+| `cacheTtl` | | 10 s | How long a prompt document is served without revalidating |
 | `pollingEnabled` | | `true` | A background thread revalidates every `cacheTtl` |
 | `connectTimeout` / `requestTimeout` | | 5 s | HTTP timeouts |
 | `startupFetchTimeout` | | 3 s | The budget for the one fetch a cold start may wait on |
-| `diskCacheEnabled` | | `true` | Mirror every fetched use case document to a local file |
-| `diskCachePath` | | OS cache dir, `prompton/use-cases-<project>-<environment>.json` | Where that file lives |
-| `bundlePath` | | none | A use case document JSON file committed into your repository |
+| `diskCacheEnabled` | | `true` | Mirror every fetched prompt document to a local file |
+| `diskCachePath` | | OS cache dir, `prompton/prompts-<project>-<environment>.json` | Where that file lives |
+| `bundlePath` | | none | A prompt document JSON file committed into your repository |
 | `log.flushInterval` | | 2 s | Time trigger for the monitoring-log queue |
 | `log.flushSize` | | 100 | Size trigger |
 | `log.flushBytes` | | 1 MB | Bytes trigger |
@@ -90,14 +90,14 @@ default**.
 | `log.redact` | | none | `(JsonObject) -> JsonObject`, applied to every record last |
 | `hashEndUser` | | `false` | Send `sha256(end_user_ref)` instead of the raw reference |
 | `mode` | | `LIVE` | `LIVE`, `TEST` (no HTTP, records captured) or `OFFLINE` (disk and bundle only) |
-| `payloadDefaults` | | full, 1.0, 256 KB | The policy for a use case whose document carries none |
+| `payloadDefaults` | | full, 1.0, 256 KB | The policy for a prompt whose document carries none |
 | `transport` | | `JdkHttpTransport` | Any `HttpTransport`, for your own client or a stub in tests |
 
 ```kotlin
 val prompton = PromptOn(
     PromptOnConfig(
         environment = "staging",
-        bundlePath = Path.of("config/use-cases.staging.json"),
+        bundlePath = Path.of("config/prompts.staging.json"),
         hashEndUser = true,
         log = LogOptions(flushInterval = 5.seconds, redact = { record -> stripPii(record) }),
     ),
@@ -113,16 +113,16 @@ Config is stale in the worst case, not absent.
 start      memory → disk cache → bundle → remote
 useCase    served from memory; past the cache TTL a background revalidation starts and this call
            returns anyway
-refresh    GET /use-cases?environment=… with If-None-Match; 304 costs nothing
+refresh    GET /prompts?environment=… with If-None-Match; 304 costs nothing
 failure    keep serving the previous document, back off, try again
 ```
 
 - Inside the cache TTL every `useCase` call is a map lookup with no HTTP at all.
 - On `429`, `Retry-After` is honored by the poller, `refreshBlocking()` and the
-  `/use-cases/{key}/prompt` client.
-- Fetched use case documents are mirrored atomically to disk, with a metadata sidecar holding ETag,
+  `/prompts/{key}/render` client.
+- Fetched prompt documents are mirrored atomically to disk, with a metadata sidecar holding ETag,
   `Last-Modified`, project and environment.
-- Commit `use-cases.<environment>.json` (write it with `prompton.exportUseCaseDocument(path)`) and
+- Commit `prompts.<environment>.json` (write it with `prompton.exportUseCaseDocument(path)`) and
   point `bundlePath` at it for cold starts without network.
 - A document for another environment, another project, or an unsupported `schema_version` is refused
   with a warning.
@@ -131,7 +131,7 @@ failure    keep serving the previous document, back off, try again
 `prompton.useCaseDocumentInfo()` reports what is being served — ETag, source, age and whether it is
 stale — and `prompton.refreshBlocking(force = true)` is the deliberate way through a backoff window.
 
-`prompton.useCaseRemoteBlocking(useCase)` uses `/use-cases/{key}/prompt`, caches the answer per use
+`prompton.useCaseRemoteBlocking(useCase)` uses `/prompts/{key}/render`, caches the answer per use
 case, prompt and environment for the cache TTL, and follows the same `Retry-After`/backoff rules.
 
 ## How it fails
@@ -143,12 +143,12 @@ case, prompt and environment for the cache TTL, and follows the same `Retry-Afte
 | Refresh returns `304` | Keeps the document, marks it fresh | Unchanged |
 | Refresh returns `429` | Waits out `Retry-After`, keeps serving | Nothing; no error |
 | Refresh returns `5xx`, times out, DNS fails | Backs off ×2 up to 5 min, keeps serving | Nothing; the document is marked stale |
-| `/use-cases/{key}/prompt` answers `429` or `5xx`, or is unreachable | Serves the cached answer and waits out `Retry-After` or the backoff | The previous answer; with nothing cached, a `PromptOnException` |
+| `/prompts/{key}/render` answers `429` or `5xx`, or is unreachable | Serves the cached answer and waits out `Retry-After` or the backoff | The previous answer; with nothing cached, a `PromptOnException` |
 | Server unreachable at start-up | Loads disk, then bundle | The cached configuration, `source` `disk` or `bundle` |
 | Use case document for the wrong environment or project | Refuses it, logs a warning, keeps looking | The next tier, or `UseCaseDocumentUnavailableException` |
 | Corrupt or half-written cache file | Ignores it | The next tier |
 | No tier has a document | Fails loudly | `UseCaseDocumentUnavailableException` |
-| Unknown use case key | Fails loudly | `UnknownUseCaseException` |
+| Unknown prompt key | Fails loudly | `UnknownUseCaseException` |
 | Use case with no live deployment | Fails loudly | `UnresolvedUseCaseException` |
 | Prompt name the revision does not pin | Fails loudly, never falls back to `default` | `UnknownPromptException` with `promptNames` |
 | A variable the template needs is missing | Fails loudly | `MissingVariableException` with the name |
@@ -159,7 +159,7 @@ case, prompt and environment for the cache TTL, and follows the same `Retry-Afte
 | `/logs` answers another `4xx` | Drops the batch and counts it | Nothing; a warning in the log |
 | Your provider call throws | Logs `status: error`, `error.kind: app`, then rethrows | Your exception, unchanged |
 
-**Never fall back to a hard-coded prompt.** An unknown use case, an unresolved deployment or an
+**Never fall back to a hard-coded prompt.** An unknown prompt, an unresolved deployment or an
 unpinned prompt name is a bug in the deployment or the call. Fail that call loudly instead.
 
 ## Prompt templates
@@ -200,7 +200,7 @@ environment, and retries the same ids on `429` and `5xx`.
 | `deployment_id`, `deployment_revision`, `prompt`, `prompt_version_id` | The pin that produced the call |
 | `source` | `remote`, `disk`, `bundle` or `manual` — where the configuration came from |
 | `provider`, `model_used`, `upstream_provider` | Who actually served it |
-| `params` | The use case params, with your per-call overrides layered on |
+| `params` | The prompt params, with your per-call overrides layered on |
 | `input` | `{variables, messages}` or `{text}` |
 | `output` | `{content, tool_calls}` |
 | `finish_reason`, `stop_kind` | The provider's raw value and PromptOn's normalisation |
@@ -217,7 +217,7 @@ finish-reason, usage-token and model fields from provider responses.
 
 ```kotlin
 val prompton = PromptOn(PromptOnConfig(mode = PromptOnMode.TEST))
-prompton.putUseCaseDocument(File("use-cases.production.json").readText())
+prompton.putUseCaseDocument(File("prompts.production.json").readText())
 
 myService.greet("Ada")
 
@@ -238,7 +238,7 @@ val record = prompton.capturedRecords().single() // nothing was sent anywhere
 
 The tests in `src/test/resources/conformance/` are the cross-language contract: the same JSON cases
 every PromptOn SDK runs, so that two languages talking to the same project cannot disagree about how
-a prompt fills, which model a use case document selects, or how a monitoring log is truncated.
+a prompt fills, which model a prompt document selects, or how a monitoring log is truncated.
 
 `LiveFixtureIntegrationTest` runs against a real PromptOn server and is skipped unless `PTN_API_KEY`
 is set:
@@ -249,7 +249,7 @@ PTN_HOST=http://localhost:4000 PTN_API_KEY=ptn_sdkfixture_… ./gradlew test
 
 ## Reference
 
-- [Runtime API](https://docs.prompton.ai/api) — `GET /use-cases`, `POST /use-cases/{key}/prompt`,
+- [Runtime API](https://docs.prompton.ai/api) — `GET /prompts`, `POST /prompts/{key}/render`,
   `POST /logs`
 - [Agent reference](https://docs.prompton.ai/agent) — the whole contract on one page
 

@@ -2,22 +2,31 @@
 
 All notable changes to the PromptOn Kotlin SDK.
 
+
+## 0.4.1
+
+Patch release correcting the SDK wire contract to the current PromptOn runtime API.
+
+- Fetch prompt documents from `GET /api/v1/prompts` and render through `POST /api/v1/prompts/{key}/render`.
+- Decode canonical prompt documents with `prompts` and `template_pins`, and exercise `conformance/prompt.json` in the resolver tests.
+- Send the render request field as `template` and read `template` / `template_names` from render responses while keeping legacy public `UseCase` property names.
+
 ## 0.2.0
 
 Breaking vocabulary rename for the clean PromptOn runtime API.
 
 - Replaced the public call-site API with `PromptOn.useCase(key)` returning `UseCase`.
-- Added `UseCase.messages(vars, prompt = ...)` for chat use cases and `UseCase.text(vars, prompt = ...)`
-  for text use cases, with kind checks.
+- Added `UseCase.messages(vars, prompt = ...)` for chat prompts and `UseCase.text(vars, prompt = ...)`
+  for text prompts, with kind checks.
 - Moved provider-call tracking to `UseCase.track(meta) { ... }` and `UseCase.trackBlocking(meta) { ... }`.
 - Renamed monitoring record types to log vocabulary: `LogRecord`, `LogInput`, `LogOutput`,
   `LogError`, `LogStatus`, `TrackMeta`, `TrackCall` and `Result`.
 - Added `Result.fromOpenAI(answer)` and `Result.fromAnthropic(answer)` helpers for common provider
   response shapes.
-- Updated runtime endpoints to `GET /api/v1/use-cases`, `POST /api/v1/use-cases/{key}/prompt` and
+- Updated runtime endpoints to `GET /api/v1/prompts`, `POST /api/v1/prompts/{key}/render` and
   `POST /api/v1/logs`.
 - Updated log batching to send `{"logs": [...]}`.
 - Updated wire fields to `params`, `provider_options` and `source`.
-- Updated use case documents and conformance fixtures to schema version 4.
-- Renamed the committed bundle convention to `use-cases.<environment>.json`.
+- Updated prompt documents and conformance fixtures to schema version 4.
+- Renamed the committed bundle convention to `prompts.<environment>.json`.
 - Removed old public compatibility aliases.

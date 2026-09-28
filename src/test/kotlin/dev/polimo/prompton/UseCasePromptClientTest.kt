@@ -12,12 +12,12 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
-/** The `POST /use-cases/{key}/prompt` client: the simple path, cached like the use case document. */
+/** The `POST /renders/{key}/render` client: the simple path, cached like the prompt document. */
 class UseCasePromptClientTest {
     private fun config(transport: HttpTransport) =
         PromptOnConfig(
             apiKey = "ptn_fixture_secret",
-            host = "https://prompton.test",
+            host = "https://renderon.test",
             environment = "production",
             project = "fixture",
             cacheTtl = 10.seconds,
@@ -32,8 +32,8 @@ class UseCasePromptClientTest {
           "key": "greeting",
           "kind": "chat",
           "deployment": {"id": "0198f2a1-0000-7000-8000-00000000d001", "revision": 3},
-          "prompt": "default",
-          "prompt_names": ["default", "ko"],
+          "template": "default",
+          "template_names": ["default", "ko"],
           "source": "disk",
           "model_id": "0198f2a1-0000-7000-8000-00000000e001",
           "model": "openai/gpt-4o-mini",
@@ -52,8 +52,8 @@ class UseCasePromptClientTest {
 
     private fun resolveTransport(body: AtomicReference<HttpResponse>) =
         StubTransport { request ->
-            if (request.url.contains("/use-cases/") &&
-                request.url.endsWith("/prompt")
+            if (request.url.contains("/renders/") &&
+                request.url.endsWith("/render")
             ) {
                 body.get()
             } else {
@@ -77,8 +77,8 @@ class UseCasePromptClientTest {
 
             val body = Ptn.parseObject(transport.posts().single().body!!)
             assertNull(body["variables"], "the cached path asks for the raw template")
-            assertNull(body["use_case"], "the use case key lives in the path")
-            assertEquals("https://prompton.test/api/v1/use-cases/greeting/prompt", transport.posts().single().url)
+            assertNull(body["use_case"], "the prompt key lives in the path")
+            assertEquals("https://renderon.test/api/v1/renders/greeting/render", transport.posts().single().url)
 
             repeat(4) { prompton.useCaseRemoteBlocking("greeting") }
             assertEquals(1, transport.posts().size, "the answer is cached for the cache TTL")
@@ -90,7 +90,7 @@ class UseCasePromptClientTest {
     }
 
     @Test
-    fun `each use case prompt and environment is cached separately`() {
+    fun `each prompt prompt and environment is cached separately`() {
         val response = AtomicReference(HttpResponse(200, emptyMap(), rawAnswer))
         val transport = resolveTransport(response)
         PromptOn(config(transport), FakeClock()).use { prompton ->
@@ -108,7 +108,7 @@ class UseCasePromptClientTest {
         val transport =
             StubTransport { request ->
                 when {
-                    !(request.url.contains("/use-cases/") && request.url.endsWith("/prompt")) -> HttpResponse(304)
+                    !(request.url.contains("/renders/") && request.url.endsWith("/render")) -> HttpResponse(304)
                     attempts.incrementAndGet() == 1 -> HttpResponse(200, emptyMap(), rawAnswer)
                     else -> HttpResponse(429, mapOf("retry-after" to "30"), "")
                 }
@@ -128,7 +128,7 @@ class UseCasePromptClientTest {
         val transport =
             StubTransport { request ->
                 when {
-                    !(request.url.contains("/use-cases/") && request.url.endsWith("/prompt")) -> HttpResponse(304)
+                    !(request.url.contains("/renders/") && request.url.endsWith("/render")) -> HttpResponse(304)
                     attempts.incrementAndGet() == 1 -> HttpResponse(200, emptyMap(), rawAnswer)
                     else -> HttpResponse(429, mapOf("retry-after" to "30"), "")
                 }
@@ -155,7 +155,7 @@ class UseCasePromptClientTest {
         val transport =
             StubTransport { request ->
                 when {
-                    !(request.url.contains("/use-cases/") && request.url.endsWith("/prompt")) -> HttpResponse(304)
+                    !(request.url.contains("/renders/") && request.url.endsWith("/render")) -> HttpResponse(304)
                     attempts.incrementAndGet() == 1 -> HttpResponse(200, emptyMap(), rawAnswer)
                     else -> throw java.io.IOException("connection refused")
                 }
@@ -188,7 +188,7 @@ class UseCasePromptClientTest {
         val transport =
             StubTransport { request ->
                 when {
-                    !(request.url.contains("/use-cases/") && request.url.endsWith("/prompt")) -> HttpResponse(304)
+                    !(request.url.contains("/renders/") && request.url.endsWith("/render")) -> HttpResponse(304)
                     attempts.incrementAndGet() == 1 -> HttpResponse(200, emptyMap(), rawAnswer)
                     else -> throw java.io.IOException("connection refused")
                 }
@@ -204,8 +204,8 @@ class UseCasePromptClientTest {
     @Test
     fun `with nothing cached the failure reaches the caller`() {
         val transport = StubTransport { request ->
-            if (request.url.contains("/use-cases/") &&
-                request.url.endsWith("/prompt")
+            if (request.url.contains("/renders/") &&
+                request.url.endsWith("/render")
             ) {
                 HttpResponse(503, emptyMap(), "")
             } else {
@@ -232,11 +232,11 @@ class UseCasePromptClientTest {
     @Test
     fun `a client error is not treated as a load problem`() {
         val notFound =
-            """{"error":{"code":"not_found","message":"unknown use case: nope","details":{"key":"nope"}}}"""
+            """{"error":{"code":"not_found","message":"unknown prompt: nope","details":{"key":"nope"}}}"""
         val transport =
             StubTransport { request ->
-                if (request.url.contains("/use-cases/") &&
-                    request.url.endsWith("/prompt")
+                if (request.url.contains("/renders/") &&
+                    request.url.endsWith("/render")
                 ) {
                     HttpResponse(404, emptyMap(), notFound)
                 } else {
@@ -256,8 +256,8 @@ class UseCasePromptClientTest {
     fun `the smoke-test path sends the variables and is never cached`() {
         val rendered = rawAnswer.replace("Say hello to {{ name }}.", "Say hello to Ada.")
         val transport = StubTransport { request ->
-            if (request.url.contains("/use-cases/") &&
-                request.url.endsWith("/prompt")
+            if (request.url.contains("/renders/") &&
+                request.url.endsWith("/render")
             ) {
                 HttpResponse(200, emptyMap(), rendered)
             } else {
@@ -275,17 +275,17 @@ class UseCasePromptClientTest {
             assertEquals(3, transport.posts().size, "the smoke test always asks the server")
             val body = Ptn.parseObject(transport.posts().last().body!!)
             assertEquals("Ada", ((body["variables"] as JsonObject)["name"] as JsonPrimitive).content)
-            assertNull(body["use_case"], "the use case key lives in the path")
-            assertNull(body["key"], "the use case key lives in the path")
+            assertNull(body["use_case"], "the prompt key lives in the path")
+            assertNull(body["key"], "the prompt key lives in the path")
         }
     }
 
     @Test
-    fun `use case prompt errors map onto the sdk's own exceptions`() {
+    fun `prompt prompt errors map onto the sdk's own exceptions`() {
         val body = AtomicReference<HttpResponse>()
         val transport = StubTransport { request ->
-            if (request.url.contains("/use-cases/") &&
-                request.url.endsWith("/prompt")
+            if (request.url.contains("/renders/") &&
+                request.url.endsWith("/render")
             ) {
                 body.get()
             } else {
@@ -297,7 +297,7 @@ class UseCasePromptClientTest {
                 HttpResponse(
                     404,
                     emptyMap(),
-                    """{"error":{"code":"not_found","message":"unknown use case: nope",
+                    """{"error":{"code":"not_found","message":"unknown prompt: nope",
                        "details":{"key":"nope"}}}""",
                 ),
             )
@@ -308,7 +308,7 @@ class UseCasePromptClientTest {
                 HttpResponse(
                     404,
                     emptyMap(),
-                    """{"error":{"code":"not_found","message":"unknown use case",
+                    """{"error":{"code":"not_found","message":"unknown prompt",
                        "details":{"reason":"unknown_use_case"}}}""",
                 ),
             )
@@ -330,8 +330,8 @@ class UseCasePromptClientTest {
                     404,
                     emptyMap(),
                     """{"error":{"code":"not_found","message":"no prompt named fr",
-                       "details":{"reason":"unknown_prompt","key":"greeting","prompt":"fr",
-                       "prompt_names":["default","ko"]}}}""",
+                       "details":{"reason":"unknown_template","key":"greeting","template":"fr",
+                       "template_names":["default","ko"]}}}""",
                 ),
             )
             val unknownPrompt =
@@ -344,8 +344,8 @@ class UseCasePromptClientTest {
                     404,
                     emptyMap(),
                     """{"error":{"code":"not_found","message":"no prompt named fr",
-                       "details":{"reason":"unknown_prompt","prompt":"fr",
-                       "prompt_names":["default","ko"]}}}""",
+                       "details":{"reason":"unknown_template","template":"fr",
+                       "template_names":["default","ko"]}}}""",
                 ),
             )
             val fallbackUnknownPrompt =

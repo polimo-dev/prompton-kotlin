@@ -24,7 +24,7 @@ class SnapshotCacheTest {
         cacheTtl: kotlin.time.Duration = 10.seconds,
     ) = PromptOnConfig(
         apiKey = "ptn_fixture_secret",
-        host = "https://prompton.test",
+        host = "https://renderon.test",
         environment = "production",
         project = "fixture",
         cacheTtl = cacheTtl,
@@ -66,7 +66,7 @@ class SnapshotCacheTest {
 
             val revalidation = transport.lastRequest()
             assertEquals(SnapshotFixtures.PRODUCTION_ETAG, revalidation.headers["if-none-match"])
-            assertEquals("https://prompton.test/api/v1/use-cases?environment=production", revalidation.url)
+            assertEquals("https://renderon.test/api/v1/renders?environment=production", revalidation.url)
             assertEquals("Bearer ptn_fixture_secret", revalidation.headers["authorization"])
             assertTrue(revalidation.headers["user-agent"]!!.startsWith("prompton-kotlin/"))
 
@@ -296,7 +296,7 @@ class SnapshotCacheTest {
     @Test
     fun `fetch once now is synchronous and export writes a bundle`() {
         val transport = StubTransport { okResponse() }
-        val bundle = tempDir.resolve("use-cases.production.json")
+        val bundle = tempDir.resolve("prompts.production.json")
         PromptOn(config(transport).copy(pollingEnabled = false), FakeClock()).use { prompton ->
             assertTrue(prompton.refreshBlocking())
             prompton.exportUseCaseDocument(bundle)
@@ -309,7 +309,7 @@ class SnapshotCacheTest {
         assertEquals("fixture", exported.project)
         assertTrue(
             java.nio.file.Files
-                .exists(tempDir.resolve("use-cases.production.json.meta.json")),
+                .exists(tempDir.resolve("prompts.production.json.meta.json")),
         )
     }
 

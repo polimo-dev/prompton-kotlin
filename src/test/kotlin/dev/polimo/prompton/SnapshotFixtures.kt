@@ -16,7 +16,7 @@ object SnapshotFixtures {
           "schema_version": 4,
           "project": "$project",
           "environment": "$environment",
-          "use_cases": {
+          "prompts": {
             "greeting": {
               "id": "0198f2a1-0000-7000-8000-0000000000c1",
               "kind": "chat",
@@ -33,7 +33,7 @@ object SnapshotFixtures {
               "model_id": "0198f2a1-0000-7000-8000-00000000e001",
               "params": {"temperature": $temperature},
               "provider_options": {},
-              "prompt_pins": {
+              "template_pins": {
                 "default": "0198f2a1-0000-7000-8000-00000000a001",
                 "ko": "0198f2a1-0000-7000-8000-00000000a002"
               }

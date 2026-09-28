@@ -22,22 +22,22 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 
-/** Runs every case of `conformance/use_case.json`: the use case algorithm the server prompt endpoint runs. */
+/** Runs every case of `conformance/render.json`: the prompt algorithm the server prompt endpoint runs. */
 class UseCaseConformanceTest {
     @Test
-    fun `use case cases`() {
-        val file = Conformance.load("use_case")
+    fun `prompt cases`() {
+        val file = Conformance.load("prompt")
         val documents =
             (file["documents"] as JsonObject).entries.associate { (name, document) ->
                 name to UseCaseDocument.parse(document.toString())
             }
 
         var executed = 0
-        for (case in Conformance.cases("use_case")) {
+        for (case in Conformance.cases("prompt")) {
             val name = Conformance.string(case, "name")!!
             val document = documents.getValue(Conformance.string(case, "document_ref")!!)
-            val key = Conformance.string(case, "use_case")!!
-            val prompt = Conformance.string(case, "prompt")
+            val key = Conformance.string(case, "prompt_key")!!
+            val prompt = Conformance.string(case, "template")
             val hasVariables = case.containsKey("variables")
             val variables = Conformance.nativeMap(case["variables"])
             val expect = case["expect"] as JsonObject
@@ -48,17 +48,17 @@ class UseCaseConformanceTest {
                     describe(useCase, hasVariables, variables)
                 } catch (e: UnknownUseCaseException) {
                     buildJsonObject {
-                        put("error", "unknown_use_case")
+                        put("error", "unknown_prompt")
                         put("key", e.useCase)
                     }
                 } catch (e: UnresolvedUseCaseException) {
                     buildJsonObject { put("error", "unresolved") }
                 } catch (e: UnknownPromptException) {
                     buildJsonObject {
-                        put("error", "unknown_prompt")
+                        put("error", "unknown_template")
                         put("key", e.useCase)
-                        put("prompt", e.prompt)
-                        put("prompt_names", JsonArray(e.promptNames.map { JsonPrimitive(it) }))
+                        put("template", e.prompt)
+                        put("template_names", JsonArray(e.promptNames.map { JsonPrimitive(it) }))
                     }
                 } catch (e: MissingVariableException) {
                     buildJsonObject {
@@ -70,7 +70,7 @@ class UseCaseConformanceTest {
             assertEquals(expect, actual, name)
             executed += 1
         }
-        assertEquals(15, executed)
+        assertEquals(16, executed)
     }
 
     @Test
@@ -78,10 +78,10 @@ class UseCaseConformanceTest {
         val document = UseCaseDocument.parse(
             """
             {"schema_version": 7, "project": "p", "environment": "production",
-             "use_cases": {"tool_chat": {"id": "u1", "kind": "chat", "default_params": {}}},
+             "prompts": {"tool_chat": {"id": "u1", "kind": "chat", "default_params": {}}},
              "deployments": {"tool_chat": {"id": "d1", "revision": 1, "model_id": "m1",
                                           "params": {}, "provider_options": {},
-                                          "prompt_pins": {"default": "v1"}}},
+                                          "template_pins": {"default": "v1"}}},
              "prompt_versions": {"v1": {"id": "v1", "number": 1, "engine": "liquid",
                 "messages": [
                   {"role":"system","content":"Continue with {{ input }}."},
@@ -122,10 +122,10 @@ class UseCaseConformanceTest {
         val document = UseCaseDocument.parse(
             """
             {"schema_version": 7, "project": "p", "environment": "production",
-             "use_cases": {"tool_chat": {"id": "u1", "kind": "chat", "default_params": {}}},
+             "prompts": {"tool_chat": {"id": "u1", "kind": "chat", "default_params": {}}},
              "deployments": {"tool_chat": {"id": "d1", "revision": 1, "model_id": "m1",
                                           "params": {}, "provider_options": {},
-                                          "prompt_pins": {"default": "v1"}}},
+                                          "template_pins": {"default": "v1"}}},
              "prompt_versions": {"v1": {"id": "v1", "number": 1, "engine": "liquid",
                 "messages": [{"role":"user","content":"hi"}],
                 "tools": {"definitions": [{"type":"function","function":{"name":"search"},
@@ -152,10 +152,10 @@ class UseCaseConformanceTest {
         val document = UseCaseDocument.parse(
             """
             {"schema_version": 7, "project": "p", "environment": "production",
-             "use_cases": {"tool_chat": {"id": "u1", "kind": "chat", "default_params": {}}},
+             "prompts": {"tool_chat": {"id": "u1", "kind": "chat", "default_params": {}}},
              "deployments": {"tool_chat": {"id": "d1", "revision": 1, "model_id": "m1",
                                           "params": {"parallel_tool_calls": true}, "provider_options": {},
-                                          "prompt_pins": {"default": "v1"}}},
+                                          "template_pins": {"default": "v1"}}},
              "prompt_versions": {"v1": {"id": "v1", "number": 1, "engine": "liquid",
                 "messages": [{"role":"user","content":"hi"}],
                 "tools": {"parallel_tool_calls": false}}},
@@ -177,8 +177,8 @@ class UseCaseConformanceTest {
         fields["key"] = JsonPrimitive(useCase.key)
         fields["revision"] = useCase.deploymentRevision?.let { JsonPrimitive(it) } ?: JsonNull
         fields["kind"] = JsonPrimitive(useCase.kind.wire)
-        fields["prompt"] = nullable(useCase.prompt)
-        fields["prompt_names"] = JsonArray(useCase.promptNames.map { JsonPrimitive(it) })
+        fields["template"] = nullable(useCase.prompt)
+        fields["template_names"] = JsonArray(useCase.promptNames.map { JsonPrimitive(it) })
         fields["model"] = nullable(useCase.model)
         fields["model_id"] = nullable(useCase.modelId)
         fields["provider"] = nullable(useCase.provider)

@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Everything one SDK instance owns that has to be released: the log queue, the use case document poller and
+ * Everything one SDK instance owns that has to be released: the log queue, the prompt document poller and
  * the transport.
  *
  * It deliberately holds no reference back to the [dev.polimo.prompton.PromptOn] that owns it, so an
@@ -42,7 +42,7 @@ internal class PromptOnResources(
  * — so a test suite or a per-request instantiation would accumulate hooks and threads without bound.
  * Instead a single hook walks weak references to the instances that are still alive, and the cleaner
  * closes an instance the app dropped without calling `close()`, which is what actually releases its
- * `prompton-use-cases` and `prompton-logs` threads.
+ * `prompton-prompts` and `prompton-logs` threads.
  */
 internal object PromptOnLifecycle {
     private val cleaner: Cleaner by lazy {

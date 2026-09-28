@@ -23,7 +23,7 @@ class LifecycleTest {
     private fun config() =
         PromptOnConfig(
             apiKey = "ptn_fixture_secret",
-            host = "https://prompton.test",
+            host = "https://renderon.test",
             environment = "production",
             project = "fixture",
             cacheTtl = 10.seconds,
@@ -36,7 +36,7 @@ class LifecycleTest {
         Thread
             .getAllStackTraces()
             .keys
-            .count { it.name == "prompton-use-cases" || it.name == "prompton-logs" }
+            .count { it.name == "prompton-prompts" || it.name == "prompton-logs" }
 
     @Test
     @Order(1)

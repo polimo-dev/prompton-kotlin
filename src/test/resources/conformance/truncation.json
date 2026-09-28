@@ -740,9 +740,9 @@
   "generated_from": {
     "commit": "14d4817832d8a906a461ad708f3245796f6be4b1",
     "language": "elixir",
-    "repo": "https://github.com/polimo-dev/prompton-elixir",
+    "repo": "https://github.com/polimo-dev/renderon-elixir",
     "sdk": "prompton_sdk",
-    "sdk_version": "0.4.0"
+    "sdk_version": "0.4.1"
   },
   "limits": {
     "error_message": "2048 bytes, fixed",

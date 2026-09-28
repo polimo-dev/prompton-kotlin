@@ -28,7 +28,7 @@ import kotlin.time.toJavaDuration
 import java.time.Duration as JavaDuration
 
 /**
- * The three use case document tiers and the rules that keep a log running when PromptOn is not.
+ * The three prompt document tiers and the rules that keep a log running when PromptOn is not.
  *
  * Memory is what every useCase call reads. Past the cache TTL a background revalidation refreshes it with
  * `If-None-Match`; while that is in flight, and if it fails, the previous document keeps serving.
@@ -55,7 +55,7 @@ internal class SnapshotManager(
             null
         } else {
             Executors.newSingleThreadScheduledExecutor { runnable ->
-                Thread(runnable, "prompton-use-cases").apply { isDaemon = true }
+                Thread(runnable, "prompton-prompts").apply { isDaemon = true }
             }
         }
 
@@ -150,7 +150,7 @@ internal class SnapshotManager(
             config.mode == PromptOnMode.OFFLINE -> loadLocalTiers()
             !remoteEnabled -> Unit
             !force && clock.now().isBefore(until) ->
-                PtnLog.throttled("use-case-document-refresh-paused", 60_000) {
+                PtnLog.throttled("prompt-document-refresh-paused", 60_000) {
                     "[PromptOn] refresh skipped: not contacting the server before $until — " +
                         "serving the ${describeSource()} document"
                 }
@@ -204,7 +204,7 @@ internal class SnapshotManager(
             val entry = SnapshotFiles.read(path, source, config.environment, config.project)
             if (entry != null) {
                 current.set(entry)
-                PtnLog.info("[PromptOn] loaded the use case document from ${source.wire} ($path), etag=${entry.etag}")
+                PtnLog.info("[PromptOn] loaded the prompt document from ${source.wire} ($path), etag=${entry.etag}")
                 return true
             }
         }
@@ -256,7 +256,7 @@ internal class SnapshotManager(
             try {
                 UseCaseDocument.parse(response.body)
             } catch (e: RuntimeException) {
-                recordFailure("undecodable use case document: ${e.message}", null)
+                recordFailure("undecodable prompt document: ${e.message}", null)
                 return false
             }
         if (document.environment != config.environment) {
@@ -274,7 +274,7 @@ internal class SnapshotManager(
             )
             return false
         }
-        document.warnings.forEach { PtnLog.warn("[PromptOn] use case document decoded with a warning: $it") }
+        document.warnings.forEach { PtnLog.warn("[PromptOn] prompt document decoded with a warning: $it") }
 
         val now = clock.now()
         val entry =
@@ -314,8 +314,8 @@ internal class SnapshotManager(
         val now = clock.now()
         nextAttemptAt.set(now.plusMillis(delay.inWholeMilliseconds))
         current.getAndUpdate { entry -> entry?.let { if (it.staleSince == null) it.copy(staleSince = now) else it } }
-        PtnLog.throttled("use-case-document-fetch", 60_000) {
-            "[PromptOn] use case document refresh failed (attempt $attempt): $reason — " +
+        PtnLog.throttled("prompt-document-fetch", 60_000) {
+            "[PromptOn] prompt document refresh failed (attempt $attempt): $reason — " +
                 "serving the ${describeSource()} document, next try in ${delay.inWholeSeconds}s"
         }
     }
@@ -323,7 +323,7 @@ internal class SnapshotManager(
     private fun backoff(attempt: Int): Duration = backoffFrom(config.cacheTtl, attempt)
 
     private fun snapshotUrl(): String =
-        "${config.baseUrl}/use-cases?environment=" +
+        "${config.baseUrl}/renders?environment=" +
             URLEncoder.encode(config.environment, StandardCharsets.UTF_8)
 
     private fun requestHeaders(etag: String?): Map<String, String> {

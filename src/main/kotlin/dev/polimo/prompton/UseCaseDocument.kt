@@ -5,15 +5,15 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/** A use case document whose `schema_version` this SDK cannot read. */
+/** A prompt document whose `schema_version` this SDK cannot read. */
 public class UnsupportedSchemaVersionException(
     public val schemaVersion: Int,
 ) : PromptOnException(
-        "unsupported use case document schema_version $schemaVersion; this SDK reads version ${UseCaseDocument.SCHEMA_VERSION}",
+        "unsupported prompt document schema_version $schemaVersion; this SDK reads version ${UseCaseDocument.SCHEMA_VERSION}",
     )
 
 /**
- * A decoded `GET /use-cases` document (schema v4): everything live in one environment.
+ * A decoded `GET /renders` document (schema v4): everything live in one environment.
  *
  * Decoding is lenient about additions to schema v4, and strict about the schema itself: only
  * `schema_version: 4` is accepted.
@@ -44,7 +44,7 @@ public class UseCaseDocument internal constructor(
     public companion object {
         public const val SCHEMA_VERSION: Int = 7
 
-        /** Decodes a `GET /use-cases` body. */
+        /** Decodes a `GET /renders` body. */
         public fun parse(json: String): UseCaseDocument = decode(Ptn.parseObject(json), json)
 
         internal fun decode(
@@ -54,12 +54,12 @@ public class UseCaseDocument internal constructor(
             val warnings = mutableListOf<String>()
             val schemaVersion =
                 schemaVersionOf(root["schema_version"])
-                    ?: throw PromptOnException("use case document schema_version must be integer 4")
+                    ?: throw PromptOnException("prompt document schema_version must be integer 4")
             if (schemaVersion !in 4..SCHEMA_VERSION) throw UnsupportedSchemaVersionException(schemaVersion)
 
             val useCasesRaw =
-                Ptn.asObject(root["use_cases"])
-                    ?: throw PromptOnException("use case document use_cases is required")
+                Ptn.asObject(root["prompts"])
+                    ?: throw PromptOnException("prompt document prompts is required")
 
             val useCases =
                 useCasesRaw.entries.associate { (key, value) ->
@@ -165,7 +165,7 @@ public class UseCaseDocument internal constructor(
                 providerOptions = nativeMap(raw?.get("provider_options")),
                 promptPins =
                     Ptn
-                        .asObject(raw?.get("prompt_pins"))
+                        .asObject(raw?.get("template_pins"))
                         ?.entries
                         ?.mapNotNull { (name, value) -> Ptn.asString(value)?.let { name to it } }
                         ?.toMap()

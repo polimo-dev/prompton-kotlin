@@ -209,7 +209,7 @@
         "variable": "name"
       },
       "name": "chat/missing_variable",
-      "note": "use case selection succeeds; rendering fails",
+      "note": "prompt selection succeeds; rendering fails",
       "use_case": "greeting",
       "variables": {}
     },
@@ -353,8 +353,8 @@
         "source": "remote",
         "warnings": []
       },
-      "name": "embedding/prompt_name_is_ignored",
-      "note": "a prompt name given for an embedding use case is ignored, not an error",
+      "name": "embedding/render_name_is_ignored",
+      "note": "a prompt name given for an embedding prompt is ignored, not an error",
       "prompt": "ko",
       "use_case": "embed"
     },
@@ -438,7 +438,7 @@
           "default"
         ]
       },
-      "name": "staging/prompt_pinned_only_in_production",
+      "name": "staging/render_pinned_only_in_production",
       "prompt": "ko",
       "use_case": "greeting"
     },
@@ -473,17 +473,17 @@
         ]
       },
       "name": "degraded/missing_prompt_version_and_model",
-      "note": "the document references ids it does not contain: use case selection still succeeds, with warnings and null fields",
+      "note": "the document references ids it does not contain: prompt selection still succeeds, with warnings and null fields",
       "use_case": "greeting"
     }
   ],
   "conformance": "use_case",
   "default_prompt": "default",
-  "description": "Use case selection: use-case document + use case (+ prompt name) -> which model, params and prompt version to use, then filling when `variables` is present. This is exactly what POST /api/v1/use-cases/{key}/prompt does on the server.",
+  "description": "Prompt selection: prompt document + prompt (+ prompt name) -> which model, params and prompt version to use, then filling when `variables` is present. This is exactly what POST /api/v1/renders/{key}/render does on the server.",
   "document_notes": {
     "degraded": "Synthetic. The deployment points at a prompt version id and a model id the document does not contain, to pin down the warning path. A healthy server never emits this.",
-    "production": "The everyday shape: three deployed use cases (chat with two prompt names, text, embedding) plus one use case that has never been deployed. Field for field what GET /use-cases returns.",
-    "staging": "The same project in another environment: one use case, a different revision, different params and only the default prompt pinned."
+    "production": "The everyday shape: three deployed prompts (chat with two prompt names, text, embedding) plus one prompt that has never been deployed. Field for field what GET /renders returns.",
+    "staging": "The same project in another environment: one prompt, a different revision, different params and only the default prompt pinned."
   },
   "documents": {
     "degraded": {
@@ -492,7 +492,7 @@
           "id": "0198f2a1-0000-7000-8000-00000000d021",
           "model_id": "0198f2a1-0000-7000-8000-0000000000fe",
           "params": {},
-          "prompt_pins": {
+          "template_pins": {
             "default": "0198f2a1-0000-7000-8000-0000000000ff"
           },
           "provider_options": {
@@ -508,7 +508,7 @@
       "project": "sdkfixture",
       "prompt_versions": {},
       "schema_version": 4,
-      "use_cases": {
+      "prompts": {
         "greeting": {
           "default_params": {
             "temperature": 0.4
@@ -534,7 +534,7 @@
           "params": {
             "dimensions": 256
           },
-          "prompt_pins": {},
+          "template_pins": {},
           "provider_options": {},
           "revision": 2
         },
@@ -544,7 +544,7 @@
           "params": {
             "temperature": 0.2
           },
-          "prompt_pins": {
+          "template_pins": {
             "default": "0198f2a1-0000-7000-8000-00000000a001",
             "ko": "0198f2a1-0000-7000-8000-00000000a002"
           },
@@ -558,7 +558,7 @@
           "id": "0198f2a1-0000-7000-8000-00000000d002",
           "model_id": "0198f2a1-0000-7000-8000-00000000e001",
           "params": {},
-          "prompt_pins": {
+          "template_pins": {
             "default": "0198f2a1-0000-7000-8000-00000000a003"
           },
           "provider_options": {},
@@ -642,7 +642,7 @@
         }
       },
       "schema_version": 4,
-      "use_cases": {
+      "prompts": {
         "draft": {
           "default_params": {},
           "id": "0198f2a1-0000-7000-8000-00000000c004",
@@ -729,7 +729,7 @@
             "temperature": 0.9,
             "top_p": 0.8
           },
-          "prompt_pins": {
+          "template_pins": {
             "default": "0198f2a1-0000-7000-8000-00000000a004"
           },
           "provider_options": {},
@@ -778,7 +778,7 @@
         }
       },
       "schema_version": 4,
-      "use_cases": {
+      "prompts": {
         "greeting": {
           "default_params": {
             "max_tokens": 512,
@@ -805,18 +805,18 @@
     }
   },
   "error_categories": {
-    "missing_variable": "use case selection succeeded but rendering needed a variable that was absent",
+    "missing_variable": "prompt selection succeeded but rendering needed a variable that was absent",
     "unknown_prompt": "the deployment pins no prompt version under that name (no fallback to \"default\")",
-    "unknown_use_case": "the document has no use case with that key",
-    "unresolved": "the use case exists but has no deployment in this environment"
+    "unknown_use_case": "the document has no prompt with that key",
+    "unresolved": "the prompt exists but has no deployment in this environment"
   },
   "format_version": 1,
   "generated_from": {
     "commit": "14d4817832d8a906a461ad708f3245796f6be4b1",
     "language": "elixir",
-    "repo": "https://github.com/polimo-dev/prompton-elixir",
+    "repo": "https://github.com/polimo-dev/renderon-elixir",
     "sdk": "prompton_sdk",
-    "sdk_version": "0.4.0"
+    "sdk_version": "0.4.1"
   },
   "merge_semantics": {
     "null_values": "an override value of null is kept as null, not deleted",

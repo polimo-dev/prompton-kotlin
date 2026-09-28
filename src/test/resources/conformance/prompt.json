@@ -423,7 +423,7 @@
         "template_names": [],
         "warnings": []
       },
-      "name": "embedding/prompt_name_is_ignored",
+      "name": "embedding/render_name_is_ignored",
       "note": "a template name given for an embedding prompt is ignored, not an error",
       "prompt_key": "embed",
       "template": "ko"
@@ -434,7 +434,7 @@
       "expect": {
         "error": "unresolved"
       },
-      "name": "error/prompt_without_deployment",
+      "name": "error/render_without_deployment",
       "prompt_key": "draft"
     },
     {
@@ -508,7 +508,7 @@
           "default"
         ]
       },
-      "name": "staging/prompt_pinned_only_in_production",
+      "name": "staging/render_pinned_only_in_production",
       "prompt_key": "greeting",
       "template": "ko"
     },
@@ -549,10 +549,10 @@
   ],
   "conformance": "prompt",
   "default_template": "default",
-  "description": "Prompt selection: prompt document + prompt (+ template name) -> which model, params and template version to use, then filling when `variables` is present. This is exactly what POST /api/v1/prompts/{key}/render does on the server.",
+  "description": "Prompt selection: prompt document + prompt (+ template name) -> which model, params and template version to use, then filling when `variables` is present. This is exactly what POST /api/v1/renders/{key}/render does on the server.",
   "document_notes": {
     "degraded": "Synthetic. The deployment points at a template version id and a model id the document does not contain, to pin down the warning path. A healthy server never emits this.",
-    "production": "The everyday shape: three deployed prompts (chat with two template names, text, embedding) plus one prompt that has never been deployed. Field for field what GET /prompts returns.",
+    "production": "The everyday shape: three deployed prompts (chat with two template names, text, embedding) plus one prompt that has never been deployed. Field for field what GET /renders returns.",
     "staging": "The same project in another environment: one prompt, a different revision, different params and only the default template pinned."
   },
   "documents": {
@@ -954,9 +954,9 @@
   "generated_from": {
     "commit": "7a7b6892b1af29bcf6a8add836911a6fbdc49770",
     "language": "elixir",
-    "repo": "https://github.com/polimo-dev/prompton-elixir",
+    "repo": "https://github.com/polimo-dev/renderon-elixir",
     "sdk": "prompton_sdk",
-    "sdk_version": "0.4.0"
+    "sdk_version": "0.4.1"
   },
   "merge_semantics": {
     "null_values": "an override value of null is kept as null, not deleted",

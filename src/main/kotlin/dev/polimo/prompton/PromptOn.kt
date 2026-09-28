@@ -22,7 +22,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.toJavaDuration
 
-/** What the use case document store is currently serving. */
+/** What the prompt document store is currently serving. */
 public data class UseCaseDocumentInfo(
     val etag: String?,
     val lastModified: String?,
@@ -54,7 +54,7 @@ public data class LogStats(
     val batchesSent: Long,
 )
 
-/** The answer `POST /api/v1/use-cases/{key}/prompt` gives: the server-rendered use case prompt. */
+/** The answer `POST /api/v1/renders/{key}/render` gives: the server-rendered prompt prompt. */
 public data class ServerUseCasePrompt(
     val key: String,
     val kind: UseCaseKind,
@@ -90,7 +90,7 @@ public data class ServerUseCasePrompt(
  * }
  * ```
  *
- * One instance owns one use case document store and one monitoring-log queue, and is safe to share across
+ * One instance owns one prompt document store and one monitoring-log queue, and is safe to share across
  * threads. Close it on shutdown so the queue drains.
  */
 public class PromptOn internal constructor(
@@ -139,7 +139,7 @@ public class PromptOn internal constructor(
     // Configuration
 
     /**
-     * Reads [key] from the cached use case document.
+     * Reads [key] from the cached prompt document.
      *
      * Reads memory, and past the cache TTL starts a background revalidation that never blocks
      * this call. Nothing here talks to PromptOn on the request path.
@@ -156,7 +156,7 @@ public class PromptOn internal constructor(
     /** The prompt names the live deployment of [useCase] pins. */
     public fun promptNames(useCase: String): List<String> = snapshots.entry().document.promptNames(useCase)
 
-    /** The use case document currently in memory. */
+    /** The prompt document currently in memory. */
     public fun useCaseDocument(): UseCaseDocument = snapshots.entry().document
 
     public fun useCaseDocumentInfo(): UseCaseDocumentInfo {
@@ -181,7 +181,7 @@ public class PromptOn internal constructor(
     }
 
     /**
-     * Fetches the use case document once, now, and waits for it. Returns whether a document is in memory
+     * Fetches the prompt document once, now, and waits for it. Returns whether a document is in memory
      * afterwards — a refresh that failed while the cached document keeps serving still returns true.
      *
      * While PromptOn is rate-limiting or a backoff is running this returns without calling the
@@ -201,7 +201,7 @@ public class PromptOn internal constructor(
         snapshots.export(path)
     }
 
-    /** Injects a use case document, for tests and for offline bootstrapping. */
+    /** Injects a prompt document, for tests and for offline bootstrapping. */
     @JvmOverloads
     public fun putUseCaseDocument(
         json: String,
@@ -214,10 +214,10 @@ public class PromptOn internal constructor(
     // The server-rendered prompt client
 
     /**
-     * Reads through `POST /use-cases/{key}/prompt` instead of the use case document: the simple path
+     * Reads through `POST /renders/{key}/render` instead of the prompt document: the simple path
      * for a low-traffic call site, and a smoke test for a deployment.
      *
-     * The answer is cached for the same cache TTL per use case, prompt and environment, and the
+     * The answer is cached for the same cache TTL per prompt, prompt and environment, and the
      * template is rendered locally, so this is not a per-request round trip. When PromptOn
      * answers `429` or `5xx`, or cannot be reached, the cached answer keeps serving.
      */
@@ -240,7 +240,7 @@ public class PromptOn internal constructor(
     ): UseCase = withContext(Dispatchers.IO) { useCaseRemoteBlocking(useCase, prompt, environment) }
 
     /**
-     * Calls `POST /use-cases/{key}/prompt` with [variables] and returns the server's answer
+     * Calls `POST /renders/{key}/render` with [variables] and returns the server's answer
      * verbatim, rendered server-side. Never cached.
      */
     @JvmOverloads
@@ -584,7 +584,7 @@ public class PromptOn internal constructor(
     private fun headers(json: Boolean): Map<String, String> = config.wireHeaders(json)
 
     /**
-     * The cached `/use-cases/{key}/prompt` answer, refreshed at most once per cache TTL and never
+     * The cached `/renders/{key}/render` answer, refreshed at most once per cache TTL and never
      * while the server is asking for silence.
      *
      * A `429`, a `5xx` or an unreachable server keeps serving the cached answer *and* starts a
@@ -611,7 +611,7 @@ public class PromptOn internal constructor(
         if (blockedUntil != null && now.isBefore(blockedUntil)) {
             cached?.let { return it }
             throw PromptOnException(
-                "PromptOn answered /use-cases/$useCase/prompt with an error and nothing is cached: " +
+                "PromptOn answered /renders/$useCase/render with an error and nothing is cached: " +
                     "not calling again before $blockedUntil",
             )
         }
@@ -620,7 +620,7 @@ public class PromptOn internal constructor(
             try {
                 postUseCasePromptResponse(useCase, prompt, environment, null)
             } catch (e: Exception) {
-                pauseResolve(key, now, cached, null, "/use-cases/$useCase/prompt is unreachable (${e.message})")
+                pauseResolve(key, now, cached, null, "/renders/$useCase/render is unreachable (${e.message})")
                 cached?.let { return it }
                 throw e
             }
@@ -638,7 +638,7 @@ public class PromptOn internal constructor(
                 now,
                 cached,
                 SnapshotManager.retryAfterOf(response),
-                "/use-cases/$useCase/prompt answered ${response.status}",
+                "/renders/$useCase/render answered ${response.status}",
             )
             cached?.let { return it }
         }
@@ -646,7 +646,7 @@ public class PromptOn internal constructor(
     }
 
     /**
-     * Stops calling `/use-cases/{key}/prompt` for this key until the window has passed, and keeps whatever was
+     * Stops calling `/renders/{key}/render` for this key until the window has passed, and keeps whatever was
      * cached alive for at least that long. Only `429`, `5xx` and transport failures land here — a
      * `4xx` is about the request, not about load, and repeating it is the caller's business.
      */
@@ -661,7 +661,7 @@ public class PromptOn internal constructor(
         val delay = retryAfter ?: SnapshotManager.backoffFrom(config.cacheTtl, attempt)
         if (cached != null) useCasePromptCache[key] = now to cached
         resolveNextAttempt[key] = now.plusMillis(delay.inWholeMilliseconds)
-        PtnLog.throttled("use-case-prompt-degraded", 60_000) {
+        PtnLog.throttled("prompt-render-degraded", 60_000) {
             "[PromptOn] $reason — not calling it again for ${delay.inWholeSeconds}s" +
                 if (cached != null) "; the cached answer keeps serving" else ""
         }
@@ -686,16 +686,16 @@ public class PromptOn internal constructor(
     ): HttpResponse {
         val request = LinkedHashMap<String, Any?>()
         request["environment"] = environment ?: config.environment
-        prompt?.let { request["prompt"] = it }
+        prompt?.let { request["template"] = it }
         variables?.let { request["variables"] = it }
 
         return requireTransport().execute(
             HttpRequest(
                 method = "POST",
-                url = "${config.baseUrl}/use-cases/${java.net.URLEncoder.encode(
+                url = "${config.baseUrl}/renders/${java.net.URLEncoder.encode(
                     useCase,
                     java.nio.charset.StandardCharsets.UTF_8,
-                )}/prompt",
+                )}/render",
                 headers = headers(json = true),
                 body = Ptn.canonicalJson(Ptn.toObject(request)),
             ),
@@ -716,11 +716,11 @@ public class PromptOn internal constructor(
                 MissingVariableException(Ptn.asString(details["missing_variable"])!!)
 
             reason == "unresolved" -> UnresolvedUseCaseException(useCase)
-            reason == "unknown_prompt" ->
+            reason == "unknown_template" ->
                 UnknownPromptException(
                     Ptn.asString(details?.get("key")) ?: useCase,
-                    Ptn.asString(details?.get("prompt")) ?: Resolver.DEFAULT_PROMPT,
-                    Ptn.asArray(details?.get("prompt_names"))?.mapNotNull { Ptn.asString(it) }.orEmpty(),
+                    Ptn.asString(details?.get("template")) ?: Resolver.DEFAULT_PROMPT,
+                    Ptn.asArray(details?.get("template_names"))?.mapNotNull { Ptn.asString(it) }.orEmpty(),
                 )
 
             reason == "unknown_use_case" || details?.get("key") != null ->
@@ -746,8 +746,8 @@ public class PromptOn internal constructor(
             kind = UseCaseKind.fromWire(Ptn.asString(body["kind"])),
             deploymentId = Ptn.asString(deployment?.get("id")),
             deploymentRevision = Ptn.asInt(deployment?.get("revision")),
-            prompt = Ptn.asString(body["prompt"]),
-            promptNames = Ptn.asArray(body["prompt_names"])?.mapNotNull { Ptn.asString(it) }.orEmpty(),
+            prompt = Ptn.asString(body["template"]),
+            promptNames = Ptn.asArray(body["template_names"])?.mapNotNull { Ptn.asString(it) }.orEmpty(),
             source = UseCaseSource.fromWire(Ptn.asString(body["source"])),
             model = Ptn.asString(body["model"]),
             modelId = Ptn.asString(body["model_id"]),

@@ -30,7 +30,7 @@ import kotlin.test.assertTrue
  */
 class LogRecordConformanceTest {
     private val productionDocument: String =
-        (Conformance.load("use_case")["documents"] as JsonObject)["production"].toString()
+        (Conformance.load("prompt")["documents"] as JsonObject)["production"].toString()
 
     @Test
     fun `chat success`() {

@@ -12,7 +12,7 @@ public data class UseCase(
     val environment: String,
     val deploymentId: String?,
     val deploymentRevision: Int?,
-    /** The chosen prompt name, `null` for an embedding use case. */
+    /** The chosen prompt name, `null` for an embedding prompt. */
     val prompt: String?,
     /** Every prompt name the live revision pins, sorted. */
     val promptNames: List<String>,
@@ -41,7 +41,7 @@ public data class UseCase(
      * Renders a chat prompt with this call's variables.
      *
      * @throws MissingVariableException when a variable the template reads was not supplied
-     * @throws PromptOnException when this use case is not a chat use case
+     * @throws PromptOnException when this prompt is not a chat prompt
      */
     @JvmOverloads
     public fun messages(
@@ -50,10 +50,10 @@ public data class UseCase(
     ): List<PromptMessage> {
         val selected = selected(prompt)
         if (selected.kind != UseCaseKind.CHAT) {
-            throw PromptOnException("use case '${selected.key}' is ${selected.kind.wire}, not chat")
+            throw PromptOnException("prompt '${selected.key}' is ${selected.kind.wire}, not chat")
         }
         val templates =
-            selected.messageTemplates ?: throw PromptOnException("use case '${selected.key}' has no chat prompt")
+            selected.messageTemplates ?: throw PromptOnException("prompt '${selected.key}' has no chat prompt")
         val rendered = Template.renderMessages(templates, variables, selected.engine)
         rememberForTrack(selected)
         return rendered
@@ -63,7 +63,7 @@ public data class UseCase(
      * Renders a text prompt with this call's variables.
      *
      * @throws MissingVariableException when a variable the template reads was not supplied
-     * @throws PromptOnException when this use case is not a text use case
+     * @throws PromptOnException when this prompt is not a text prompt
      */
     @JvmOverloads
     public fun text(
@@ -72,9 +72,9 @@ public data class UseCase(
     ): String {
         val selected = selected(prompt)
         if (selected.kind != UseCaseKind.TEXT) {
-            throw PromptOnException("use case '${selected.key}' is ${selected.kind.wire}, not text")
+            throw PromptOnException("prompt '${selected.key}' is ${selected.kind.wire}, not text")
         }
-        val template = selected.textTemplate ?: throw PromptOnException("use case '${selected.key}' has no text prompt")
+        val template = selected.textTemplate ?: throw PromptOnException("prompt '${selected.key}' has no text prompt")
         val rendered = Template.render(template, variables, selected.engine)
         rememberForTrack(selected)
         return rendered
@@ -116,18 +116,18 @@ public data class UseCase(
     }
 
     private fun attachedOwner(): PromptOn =
-        owner ?: throw PromptOnException("this use case is not attached to a PromptOn client")
+        owner ?: throw PromptOnException("this prompt is not attached to a PromptOn client")
 }
 
-/** The internal selection algorithm: use case document + key (+ prompt name) to a [UseCase]. */
+/** The internal selection algorithm: prompt document + key (+ prompt name) to a [UseCase]. */
 internal object Resolver {
     internal const val DEFAULT_PROMPT: String = "default"
 
     /**
      * Selects [useCaseKey] from [document].
      *
-     * @throws UnknownUseCaseException the use case document has no such use case
-     * @throws UnresolvedUseCaseException the use case has no live deployment in this environment
+     * @throws UnknownUseCaseException the prompt document has no such prompt
+     * @throws UnresolvedUseCaseException the prompt has no live deployment in this environment
      * @throws UnknownPromptException the deployment pins no prompt of that name
      */
     @JvmOverloads
