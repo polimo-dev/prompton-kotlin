@@ -90,6 +90,26 @@ class UseCasePromptClientTest {
     }
 
     @Test
+    fun `a numeric deployment revision from the server is invalid`() {
+        val response =
+            AtomicReference(
+                HttpResponse(
+                    200,
+                    emptyMap(),
+                    rawAnswer.replace("\"revision\": \"v2026.09.30-3\"", "\"revision\": 3"),
+                ),
+            )
+        val transport = resolveTransport(response)
+        PromptOn(config(transport), FakeClock()).use { prompton ->
+            val error =
+                assertFailsWith<PromptOnException> {
+                    prompton.useCaseRemoteBlocking("greeting")
+                }
+            assertTrue(error.message!!.contains("deployment revision must be a string"))
+        }
+    }
+
+    @Test
     fun `each prompt prompt and environment is cached separately`() {
         val response = AtomicReference(HttpResponse(200, emptyMap(), rawAnswer))
         val transport = resolveTransport(response)

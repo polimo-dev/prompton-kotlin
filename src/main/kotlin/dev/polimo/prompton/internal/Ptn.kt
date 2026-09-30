@@ -196,14 +196,6 @@ internal object Ptn {
             else -> null
         }
 
-    fun asRevision(value: JsonElement?): String? =
-        when {
-            value == null || value is JsonNull -> null
-            value is JsonPrimitive && value.isString -> value.content
-            value is JsonPrimitive -> value.content.toLongOrNull()?.let { "v2026.09.30-$it" }
-            else -> null
-        }
-
     fun asObject(value: JsonElement?): JsonObject? = value as? JsonObject
 
     fun asArray(value: JsonElement?): JsonArray? = value as? JsonArray

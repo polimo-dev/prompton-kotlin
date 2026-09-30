@@ -160,7 +160,7 @@ public class UseCaseDocument internal constructor(
             Deployment(
                 id = Ptn.asString(raw?.get("id")),
                 useCaseKey = Ptn.asString(raw?.get("use_case_key")) ?: key,
-                revision = Ptn.asRevision(raw?.get("revision")),
+                revision = revisionOf(raw?.get("revision")),
                 modelId = Ptn.asString(raw?.get("model_id")),
                 params = nativeMap(raw?.get("params")),
                 providerOptions = nativeMap(raw?.get("provider_options")),
@@ -172,6 +172,12 @@ public class UseCaseDocument internal constructor(
                         ?.toMap()
                         .orEmpty(),
             )
+
+        private fun revisionOf(value: JsonElement?): String? {
+            if (value == null || value is kotlinx.serialization.json.JsonNull) return null
+            if (value is JsonPrimitive && value.isString) return value.content
+            throw PromptOnException("deployment revision must be a string")
+        }
 
         private fun decodePromptVersion(
             id: String,

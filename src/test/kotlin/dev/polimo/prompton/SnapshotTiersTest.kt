@@ -185,6 +185,20 @@ class SnapshotTiersTest {
     }
 
     @Test
+    fun `deployment revision must be a string`() {
+        val error =
+            assertFailsWith<PromptOnException> {
+                UseCaseDocument.parse(
+                    SnapshotFixtures.useCaseDocument().replace(
+                        "\"revision\": \"v2026.09.30-3\"",
+                        "\"revision\": 3",
+                    ),
+                )
+            }
+        assertTrue(error.message!!.contains("deployment revision must be a string"))
+    }
+
+    @Test
     fun `concurrent writers never expose a partial file`() {
         val diskCache = tempDir.resolve("shared.json")
         val writer =

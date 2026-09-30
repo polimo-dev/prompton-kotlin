@@ -13,7 +13,9 @@ import dev.polimo.prompton.internal.SnapshotManager
 import dev.polimo.prompton.internal.wireHeaders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.nio.file.Path
 import java.time.Instant
 import java.util.Collections
@@ -761,7 +763,7 @@ public class PromptOn internal constructor(
             key = Ptn.asString(body["key"]) ?: "",
             kind = UseCaseKind.fromWire(Ptn.asString(body["kind"])),
             deploymentId = Ptn.asString(deployment?.get("id")),
-            deploymentRevision = Ptn.asRevision(deployment?.get("revision")),
+            deploymentRevision = revisionOf(deployment?.get("revision")),
             prompt = Ptn.asString(body["template"]),
             promptNames = Ptn.asArray(body["template_names"])?.mapNotNull { Ptn.asString(it) }.orEmpty(),
             source = UseCaseSource.fromWire(Ptn.asString(body["source"])),
@@ -798,6 +800,12 @@ public class PromptOn internal constructor(
             warnings = Ptn.asArray(body["warnings"])?.mapNotNull { Ptn.asString(it) }.orEmpty(),
             etag = Ptn.asString(body["etag"]),
         )
+    }
+
+    private fun revisionOf(value: JsonElement?): String? {
+        if (value == null || value is kotlinx.serialization.json.JsonNull) return null
+        if (value is JsonPrimitive && value.isString) return value.content
+        throw PromptOnException("deployment revision must be a string")
     }
 
     private fun toUseCase(
