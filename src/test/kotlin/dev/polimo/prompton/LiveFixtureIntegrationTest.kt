@@ -62,30 +62,30 @@ class LiveFixtureIntegrationTest {
     )
 
     @Test
-    fun `the snapshot is fetched once and revalidated with a 304`() {
+    fun `the requested prompt is fetched once and revalidated with a 304`() {
         val transport = transport()
         val clock = FakeClock(instant = Instant.now())
         PromptOn(config(transport), clock).use { prompton ->
-            assertTrue(prompton.refreshBlocking())
+            prompton.useCase("greeting")
             val info = prompton.useCaseDocumentInfo()
             assertEquals("sdkfixture", info.project)
             assertEquals("production", info.environment)
             assertEquals(UseCaseSource.REMOTE, info.source)
             assertNotNull(info.etag)
             assertTrue(info.etag!!.contains("sha256-"), info.etag!!)
-            assertTrue(info.useCases >= 3, "expected the fixture's three prompts, got ${info.useCases}")
+            assertTrue(info.useCases >= 1, "expected at least the requested prompt, got ${info.useCases}")
 
-            val before = transport.statuses("/prompts").size
+            val before = transport.statuses("/prompts/greeting").size
             clock.advanceMillis(11_000)
             prompton.useCase("greeting")
-            await("the revalidation") { transport.statuses("/prompts").size > before }
+            await("the revalidation") { transport.statuses("/prompts/greeting").size > before }
             settle()
 
-            val statuses = transport.statuses("/prompts")
-            assertEquals(200, statuses.first(), "the first fetch carries the document")
+            val statuses = transport.statuses("/prompts/greeting")
+            assertEquals(200, statuses.first(), "the first fetch carries the requested prompt document")
             assertTrue(
                 statuses.drop(1).all { it == 304 },
-                "every revalidation of an unchanged snapshot is a 304, got $statuses",
+                "every revalidation of an unchanged prompt is a 304, got $statuses",
             )
             assertEquals(info.etag, prompton.useCaseDocumentInfo().etag, "a 304 keeps the document it already had")
             assertEquals(UseCaseSource.REMOTE, prompton.useCaseDocumentInfo().source)
@@ -117,7 +117,6 @@ class LiveFixtureIntegrationTest {
     fun `local useCase matches the server for an embedding prompt`() {
         val transport = transport()
         PromptOn(config(transport), FakeClock(instant = Instant.now())).use { prompton ->
-            prompton.refreshBlocking()
             val local = prompton.useCase("embed")
             val server = prompton.promptOnServerBlocking("embed")
 
@@ -138,9 +137,8 @@ class LiveFixtureIntegrationTest {
     fun `staging pins something else than production`() {
         val transport = transport()
         PromptOn(config(transport, environment = "staging"), FakeClock(instant = Instant.now())).use { prompton ->
-            prompton.refreshBlocking()
-            assertEquals("staging", prompton.useCaseDocumentInfo().environment)
             val local = prompton.useCase("greeting")
+            assertEquals("staging", prompton.useCaseDocumentInfo().environment)
             val server = prompton.promptOnServerBlocking("greeting", environment = "staging")
             assertEquals(server.params, local.params)
             assertEquals(server.promptNames, local.promptNames)
@@ -156,13 +154,12 @@ class LiveFixtureIntegrationTest {
     fun `the error cases answer the way the contract says`() {
         val transport = transport()
         PromptOn(config(transport), FakeClock(instant = Instant.now())).use { prompton ->
-            prompton.refreshBlocking()
+            prompton.useCase("greeting")
 
-            val localUnknownUseCase = assertFailsWith<UnknownUseCaseException> { prompton.useCase("does_not_exist") }
+            assertFailsWith<UseCaseDocumentUnavailableException> { prompton.useCase("does_not_exist") }
             val serverUnknownUseCase =
                 assertFailsWith<UnknownUseCaseException> { prompton.promptOnServerBlocking("does_not_exist") }
-            assertEquals("does_not_exist", localUnknownUseCase.useCase)
-            assertEquals(localUnknownUseCase.useCase, serverUnknownUseCase.useCase)
+            assertEquals("does_not_exist", serverUnknownUseCase.useCase)
 
             val localUnknownPrompt =
                 assertFailsWith<UnknownPromptException> { prompton.useCase("greeting", prompt = "fr") }
@@ -192,7 +189,6 @@ class LiveFixtureIntegrationTest {
     fun `a batch of monitoring logs is accepted and a resend is a duplicate`() {
         val transport = transport()
         PromptOn(config(transport), FakeClock(instant = Instant.now())).use { prompton ->
-            prompton.refreshBlocking()
             val useCase = prompton.useCase("greeting")
             val messages = useCase.messages(mapOf("name" to "Ada"))
 
@@ -253,7 +249,6 @@ class LiveFixtureIntegrationTest {
     fun `the wrapper logs a real round trip`() {
         val transport = transport()
         PromptOn(config(transport), FakeClock(instant = Instant.now())).use { prompton ->
-            prompton.refreshBlocking()
             val useCase = prompton.useCase("greeting")
             val messages = useCase.messages(mapOf("name" to "Ada"))
 
@@ -283,7 +278,6 @@ class LiveFixtureIntegrationTest {
     ) {
         val transport = transport()
         PromptOn(config(transport), FakeClock(instant = Instant.now())).use { prompton ->
-            prompton.refreshBlocking()
             val local = prompton.useCase(useCase, prompt)
             val server = prompton.promptOnServerBlocking(useCase, prompt, variables = variables)
 

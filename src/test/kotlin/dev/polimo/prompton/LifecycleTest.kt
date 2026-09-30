@@ -36,7 +36,7 @@ class LifecycleTest {
         Thread
             .getAllStackTraces()
             .keys
-            .count { it.name == "prompton-prompts" || it.name == "prompton-logs" }
+            .count { it.name.startsWith("prompton-config-fetch") || it.name == "prompton-logs" }
 
     @Test
     @Order(1)
@@ -68,7 +68,7 @@ class LifecycleTest {
         val baselineThreads = promptonThreads()
         val reclaimedBefore = PromptOnLifecycle.reclaimedCount()
 
-        repeat(40) { PromptOn(config()) }
+        repeat(40) { runCatching { PromptOn(config()).useCase("greeting") } }
         assertTrue(promptonThreads() > baselineThreads, "the forgotten instances did start threads")
 
         collectUntil("30 of the 40 forgotten instances to be reclaimed") {

@@ -9,14 +9,15 @@ import kotlinx.serialization.json.JsonPrimitive
 public class UnsupportedSchemaVersionException(
     public val schemaVersion: Int,
 ) : PromptOnException(
-        "unsupported prompt document schema_version $schemaVersion; this SDK reads version ${UseCaseDocument.SCHEMA_VERSION}",
+        "unsupported prompt document schema_version $schemaVersion; " +
+            "this SDK reads version ${UseCaseDocument.SCHEMA_VERSION}",
     )
 
 /**
- * A decoded `GET /prompts` document (schema v4): everything live in one environment.
+ * A decoded PromptOn prompt document: either a bundle or one demand-fetched prompt key.
  *
- * Decoding is lenient about additions to schema v4, and strict about the schema itself: only
- * `schema_version: 4` is accepted.
+ * Decoding is lenient about additions to schema versions 4 through 7, and strict about the
+ * schema itself.
  */
 public class UseCaseDocument internal constructor(
     public val schemaVersion: Int,
@@ -44,7 +45,7 @@ public class UseCaseDocument internal constructor(
     public companion object {
         public const val SCHEMA_VERSION: Int = 7
 
-        /** Decodes a `GET /prompts` body. */
+        /** Decodes a PromptOn prompt document body. */
         public fun parse(json: String): UseCaseDocument = decode(Ptn.parseObject(json), json)
 
         internal fun decode(

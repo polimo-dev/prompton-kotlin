@@ -32,7 +32,7 @@ includeBuild("../prompton-kotlin")
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.polimo:prompton-sdk:0.4.2")
+    implementation("dev.polimo:prompton-sdk:0.5.0")
 }
 ```
 
@@ -53,8 +53,8 @@ val answer = useCase.trackBlocking(
 }
 ```
 
-`track` is the suspending twin of `trackBlocking`; so are `refresh`, `flush`, `useCaseRemote`
-and `promptOnServer`. Close the instance on shutdown (`prompton.close()`) so the log queue drains.
+`track` is the suspending twin of `trackBlocking`; so are `flush`, `useCaseRemote` and
+`promptOnServer`. Close the instance on shutdown (`prompton.close()`) so the log queue drains.
 
 A runnable version, including a fake provider and a committed bundle, is in
 [`examples/`](examples/src/main/kotlin/dev/polimo/prompton/examples/GreetingExample.kt):
@@ -74,10 +74,10 @@ default**.
 | `host` | `PTN_HOST` | `https://app.prompton.ai` | The SDK appends `/api/v1` itself |
 | `environment` | `PTN_ENVIRONMENT` | `production` | Which environment this process reads. Also the guard on cached and bundled documents |
 | `project` | `PTN_PROJECT` | read from the API key | Names the disk cache file and guards cached documents |
-| `cacheTtl` | | 10 s | How long a prompt document is served without revalidating |
-| `pollingEnabled` | | `true` | A background thread revalidates every `cacheTtl` |
+| `cacheTtl` | | 10 s | TTL/backoff base for `/prompts/{key}/render` cached server-render answers; runtime config fetch always uses the SDK fixed 10 s freshness and attempt gate |
+| `pollingEnabled` | | `false` | Deprecated compatibility option; config is always fetched on demand per prompt key |
 | `connectTimeout` / `requestTimeout` | | 5 s | HTTP timeouts |
-| `startupFetchTimeout` | | 3 s | The budget for the one fetch a cold start may wait on |
+| `startupFetchTimeout` | | 1 s | Deprecated compatibility option; config fetches use a one-second total budget |
 | `diskCacheEnabled` | | `true` | Mirror every fetched prompt document to a local file |
 | `diskCachePath` | | OS cache dir, `prompton/prompts-<project>-<environment>.json` | Where that file lives |
 | `bundlePath` | | none | A prompt document JSON file committed into your repository |
@@ -110,16 +110,17 @@ The single most important behaviour of the SDK: **a provider call never fails be
 Config is stale in the worst case, not absent.
 
 ```
-start      memory → disk cache → bundle → remote
-useCase    served from memory; past the cache TTL a background revalidation starts and this call
-           returns anyway
-refresh    GET /prompts?environment=… with If-None-Match; 304 costs nothing
-failure    keep serving the previous document, back off, try again
+start      memory → disk cache → bundle, with no remote call
+useCase    if the key is stale or missing: GET /prompts/{key}?environment=…
+deadline   one second total; no retry
+failure    keep serving the last valid value, even expired
 ```
 
-- Inside the cache TTL every `useCase` call is a map lookup with no HTTP at all.
-- On `429`, `Retry-After` is honored by the poller, `refreshBlocking()` and the
-  `/prompts/{key}/render` client.
+- Inside the fixed 10-second config TTL every `useCase` call is a map lookup with no HTTP at all.
+- After that fixed TTL, callers for the same key share one in-flight config fetch and its original deadline.
+  Other keys are independent and are not serialized behind a slow key.
+- A failed config attempt, including timeout, invalid payload or scope mismatch, starts the same
+  10-second per-key gate. With no cached value, the SDK raises `UseCaseDocumentUnavailableException`.
 - Fetched prompt documents are mirrored atomically to disk, with a metadata sidecar holding ETag,
   `Last-Modified`, project and environment.
 - Commit `prompts.<environment>.json` (write it with `prompton.exportUseCaseDocument(path)`) and
@@ -128,8 +129,9 @@ failure    keep serving the previous document, back off, try again
   with a warning.
 - With no usable tier at all, the SDK raises `UseCaseDocumentUnavailableException`.
 
-`prompton.useCaseDocumentInfo()` reports what is being served — ETag, source, age and whether it is
-stale — and `prompton.refreshBlocking(force = true)` is the deliberate way through a backoff window.
+`prompton.useCaseDocumentInfo()` reports the most recently served document — ETag, source, age and
+whether it is stale. `refreshBlocking` is kept only as a compatibility method and does not restore
+bulk config polling.
 
 `prompton.useCaseRemoteBlocking(useCase)` uses `/prompts/{key}/render`, caches the answer per use
 case, prompt and environment for the cache TTL, and follows the same `Retry-After`/backoff rules.
@@ -138,11 +140,11 @@ case, prompt and environment for the cache TTL, and follows the same `Retry-Afte
 
 | Situation | What the SDK does | What your call sees |
 |---|---|---|
-| Inside the cache TTL | Serves memory | The pinned configuration |
-| Past the TTL, refresh in flight | Serves the previous document | The previous configuration |
-| Refresh returns `304` | Keeps the document, marks it fresh | Unchanged |
-| Refresh returns `429` | Waits out `Retry-After`, keeps serving | Nothing; no error |
-| Refresh returns `5xx`, times out, DNS fails | Backs off ×2 up to 5 min, keeps serving | Nothing; the document is marked stale |
+| Inside the fixed 10-second config TTL | Serves memory | The pinned configuration |
+| Past the fixed TTL, fetch in flight | Serves the previous document | The previous configuration |
+| Config fetch returns `304` | Keeps the document, marks it fresh | Unchanged |
+| Config fetch returns `429` | Keeps serving and gates the next config attempt for the fixed 10 s window | Nothing; no error |
+| Config fetch returns `5xx`, times out, DNS fails | Keeps serving and gates the next config attempt for the fixed 10 s window | Nothing; the document is marked stale |
 | `/prompts/{key}/render` answers `429` or `5xx`, or is unreachable | Serves the cached answer and waits out `Retry-After` or the backoff | The previous answer; with nothing cached, a `PromptOnException` |
 | Server unreachable at start-up | Loads disk, then bundle | The cached configuration, `source` `disk` or `bundle` |
 | Use case document for the wrong environment or project | Refuses it, logs a warning, keeps looking | The next tier, or `UseCaseDocumentUnavailableException` |
@@ -249,7 +251,7 @@ PTN_HOST=http://localhost:4000 PTN_API_KEY=ptn_sdkfixture_… ./gradlew test
 
 ## Reference
 
-- [Runtime API](https://docs.prompton.ai/api) — `GET /prompts`, `POST /prompts/{key}/render`,
+- [Runtime API](https://docs.prompton.ai/api) — `GET /prompts/{key}`, `POST /prompts/{key}/render`,
   `POST /logs`
 - [Agent reference](https://docs.prompton.ai/agent) — the whole contract on one page
 

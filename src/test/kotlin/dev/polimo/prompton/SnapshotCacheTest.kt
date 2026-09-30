@@ -1,20 +1,23 @@
 package dev.polimo.prompton
 
+import com.sun.net.httpserver.HttpServer
+import dev.polimo.prompton.internal.Ptn
 import org.junit.jupiter.api.io.TempDir
+import java.net.InetSocketAddress
+import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
-/**
- * The caching rules: a 10-second window served from memory, background revalidation with
- * `If-None-Match`, and a refresh that can never block or fail a log.
- */
+/** Demand config fetch: per-key TTL, attempt gate, stale fallback and single-flight. */
 class SnapshotCacheTest {
     @TempDir
     lateinit var tempDir: Path
@@ -28,7 +31,6 @@ class SnapshotCacheTest {
         environment = "production",
         project = "fixture",
         cacheTtl = cacheTtl,
-        pollingEnabled = false,
         diskCacheEnabled = false,
         transport = transport,
     )
@@ -39,282 +41,347 @@ class SnapshotCacheTest {
     ) = HttpResponse(200, mapOf("etag" to etag, "last-modified" to "Fri, 04 Sep 2026 00:21:48 GMT"), body)
 
     @Test
-    fun `inside the cache ttl every resolve is served from memory`() {
+    fun `startup and idle do not fetch until a key is resolved`() {
         val transport = StubTransport { okResponse() }
-        val clock = FakeClock()
-        PromptOn(config(transport), clock).use { prompton ->
-            repeat(5) { assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model) }
-            assertEquals(1, transport.requestCount(), "one fetch for five resolves inside the TTL")
-            assertStaysTrue("no background fetch inside the TTL") { transport.requestCount() == 1 }
+        PromptOn(config(transport), FakeClock()).use { prompton ->
+            assertEquals(0, transport.requestCount())
+            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
+            assertEquals(1, transport.requestCount())
+            assertEquals(
+                "https://prompton.test/api/v1/prompts/greeting?environment=production",
+                transport.lastRequest().url,
+            )
         }
     }
 
     @Test
-    fun `past the ttl the next resolve revalidates with if-none-match`() {
+    fun `fresh cache hit does not fetch again within ttl`() {
+        val transport = StubTransport { okResponse() }
+        PromptOn(config(transport), FakeClock()).use { prompton ->
+            repeat(5) { assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model) }
+            assertEquals(1, transport.requestCount())
+        }
+    }
+
+    @Test
+    fun `expired key fetches with its own etag and leaves other keys independent`() {
         val transport =
             StubTransport { request ->
-                if (request.headers.containsKey("if-none-match")) HttpResponse(304) else okResponse()
-            }
-        val clock = FakeClock()
-        PromptOn(config(transport), clock).use { prompton ->
-            prompton.useCase("greeting")
-            assertEquals(1, transport.requestCount())
-
-            clock.advanceMillis(11_000)
-            prompton.useCase("greeting")
-            await("the background revalidation") { transport.requestCount() == 2 }
-
-            val revalidation = transport.lastRequest()
-            assertEquals(SnapshotFixtures.PRODUCTION_ETAG, revalidation.headers["if-none-match"])
-            assertEquals("https://prompton.test/api/v1/prompts?environment=production", revalidation.url)
-            assertEquals("Bearer ptn_fixture_secret", revalidation.headers["authorization"])
-            assertTrue(revalidation.headers["user-agent"]!!.startsWith("prompton-kotlin/"))
-
-            await("the 304 to be absorbed") { !prompton.useCaseDocumentInfo().stale }
-            assertEquals(UseCaseSource.REMOTE, prompton.useCaseDocumentInfo().source)
-        }
-    }
-
-    @Test
-    fun `a new document replaces the old one`() {
-        val body = AtomicReference(SnapshotFixtures.useCaseDocument(temperature = 0.2))
-        val etag = AtomicReference(SnapshotFixtures.PRODUCTION_ETAG)
-        val transport = StubTransport { okResponse(body.get(), etag.get()) }
-        val clock = FakeClock()
-        PromptOn(config(transport), clock).use { prompton ->
-            assertEquals(0.2, prompton.useCase("greeting").params["temperature"])
-
-            body.set(SnapshotFixtures.useCaseDocument(temperature = 0.9))
-            etag.set(SnapshotFixtures.UPDATED_ETAG)
-            clock.advanceMillis(11_000)
-            prompton.useCase("greeting")
-
-            await("the new document") { prompton.useCaseDocumentInfo().etag == SnapshotFixtures.UPDATED_ETAG }
-            assertEquals(0.9, prompton.useCase("greeting").params["temperature"])
-        }
-    }
-
-    @Test
-    fun `a failing refresh keeps serving the previous document`() {
-        val attempts = AtomicInteger()
-        val transport =
-            StubTransport { _ ->
-                if (attempts.incrementAndGet() == 1) okResponse() else HttpResponse(500, emptyMap(), "boom")
-            }
-        val clock = FakeClock()
-        PromptOn(config(transport), clock).use { prompton ->
-            prompton.useCase("greeting")
-
-            clock.advanceMillis(11_000)
-            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
-            await("the failed refresh") { transport.requestCount() == 2 }
-            settle()
-
-            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
-            assertTrue(prompton.useCaseDocumentInfo().stale, "the entry is marked stale after a failed refresh")
-            assertNotNull(prompton.useCaseDocumentInfo().etag)
-        }
-    }
-
-    @Test
-    fun `a transport that throws never reaches the caller`() {
-        val attempts = AtomicInteger()
-        val transport =
-            StubTransport { _ ->
-                if (attempts.incrementAndGet() == 1) okResponse() else throw java.io.IOException("connection reset")
-            }
-        val clock = FakeClock()
-        PromptOn(config(transport), clock).use { prompton ->
-            prompton.useCase("greeting")
-            clock.advanceMillis(11_000)
-            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
-            await("the failed refresh") { transport.requestCount() == 2 }
-            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
-        }
-    }
-
-    @Test
-    fun `a 429 pauses the poller for retry-after and the caller sees no error`() {
-        val attempts = AtomicInteger()
-        val transport =
-            StubTransport { _ ->
-                if (attempts.incrementAndGet() == 1) {
-                    okResponse()
+                if (request.headers["if-none-match"] == SnapshotFixtures.PRODUCTION_ETAG) {
+                    HttpResponse(304)
                 } else {
-                    HttpResponse(429, mapOf("retry-after" to "30"), errorBody("rate_limited", "slow down"))
-                }
-            }
-        val clock = FakeClock()
-        PromptOn(config(transport), clock).use { prompton ->
-            prompton.useCase("greeting")
-
-            clock.advanceMillis(11_000)
-            prompton.useCase("greeting")
-            await("the rate-limited refresh") { transport.requestCount() == 2 }
-            settle()
-
-            clock.advanceMillis(11_000)
-            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
-            assertStaysTrue("no request before Retry-After elapses") { transport.requestCount() == 2 }
-
-            clock.advanceMillis(31_000)
-            prompton.useCase("greeting")
-            await("the retry after the pause") { transport.requestCount() == 3 }
-        }
-    }
-
-    @Test
-    fun `a 429 without a header honours error details retry_after`() {
-        val attempts = AtomicInteger()
-        val transport =
-            StubTransport { _ ->
-                if (attempts.incrementAndGet() == 1) {
-                    okResponse()
-                } else {
-                    HttpResponse(
-                        429,
-                        emptyMap(),
-                        """{"error":{"code":"rate_limited","message":"slow down","details":{"retry_after":45}}}""",
+                    okResponse(
+                        etag =
+                            if (request.url.contains("/summarize?")) {
+                                "\"summarize-v1\""
+                            } else {
+                                SnapshotFixtures.PRODUCTION_ETAG
+                            },
                     )
                 }
             }
         val clock = FakeClock()
-        PromptOn(config(transport), clock).use { prompton ->
+        PromptOn(config(transport, 40.milliseconds), clock).use { prompton ->
             prompton.useCase("greeting")
-            clock.advanceMillis(11_000)
+            prompton.useCase("summarize")
+            clock.advanceMillis(10_100)
             prompton.useCase("greeting")
-            await("the rate-limited refresh") { transport.requestCount() == 2 }
-            settle()
 
-            clock.advanceMillis(40_000)
-            prompton.useCase("greeting")
-            assertStaysTrue("still inside the 45 second pause") { transport.requestCount() == 2 }
-
-            clock.advanceMillis(6_000)
-            prompton.useCase("greeting")
-            await("the retry after 45 seconds") { transport.requestCount() == 3 }
+            assertEquals(3, transport.requestCount())
+            assertEquals(SnapshotFixtures.PRODUCTION_ETAG, transport.lastRequest().headers["if-none-match"])
+            assertTrue(transport.lastRequest().url.contains("/prompts/greeting?"))
         }
     }
 
     @Test
-    fun `failures back off by doubling from the cache ttl up to five minutes`() {
-        val attempts = AtomicInteger()
+    fun `fetching another key does not mutate fresh cached key`() {
         val transport =
-            StubTransport { _ ->
-                if (attempts.incrementAndGet() == 1) okResponse() else HttpResponse(503, emptyMap(), "")
-            }
-        val clock = FakeClock()
-        PromptOn(config(transport), clock).use { prompton ->
-            prompton.useCase("greeting")
-
-            // The cache TTL brings the first (failing) refresh.
-            clock.advanceMillis(10_000)
-            prompton.useCase("greeting")
-            await("the first refresh") { transport.requestCount() == 2 }
-            settle()
-
-            // From there each failure doubles the wait, from the TTL up to the five-minute cap.
-            var expected = 3
-            for (gapSeconds in listOf(10L, 20L, 40L, 80L, 160L, 300L, 300L)) {
-                clock.advanceMillis(gapSeconds * 1000 - 1)
-                prompton.useCase("greeting")
-                assertStaysTrue("no retry before ${gapSeconds}s", 100) {
-                    transport.requestCount() == expected - 1
-                }
-                clock.advanceMillis(1)
-                prompton.useCase("greeting")
-                await("the retry after ${gapSeconds}s") { transport.requestCount() == expected }
-                settle()
-                expected += 1
-            }
-        }
-    }
-
-    @Test
-    fun `a slow refresh never blocks a resolve`() {
-        val attempts = AtomicInteger()
-        val transport =
-            StubTransport { _ ->
-                if (attempts.incrementAndGet() > 1) Thread.sleep(1_500)
-                okResponse()
-            }
-        val clock = FakeClock()
-        PromptOn(config(transport), clock).use { prompton ->
-            prompton.useCase("greeting")
-            clock.advanceMillis(11_000)
-
-            val startedAt = System.nanoTime()
-            repeat(20) { prompton.useCase("greeting") }
-            val elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000
-            assertTrue(elapsedMillis < 500, "20 resolves took ${elapsedMillis}ms while a refresh was in flight")
-        }
-    }
-
-    @Test
-    fun `fetch once now does not call a server that is rate-limiting`() {
-        val attempts = AtomicInteger()
-        val transport =
-            StubTransport { _ ->
-                if (attempts.incrementAndGet() == 1) {
-                    okResponse()
+            StubTransport { request ->
+                if (request.url.contains("/summarize?")) {
+                    okResponse(
+                        SnapshotFixtures.useCaseDocument(systemPrompt = "Updated greeter."),
+                        etag = "\"summarize-v2\"",
+                    )
                 } else {
-                    HttpResponse(429, mapOf("retry-after" to "60"), errorBody("rate_limited", "slow down"))
+                    okResponse(
+                        SnapshotFixtures.useCaseDocument(systemPrompt = "Original greeter."),
+                        etag = "\"greeting-v1\"",
+                    )
                 }
             }
-        val clock = FakeClock()
-        PromptOn(config(transport), clock).use { prompton ->
-            prompton.useCase("greeting")
-            await("the start-up fetch") { transport.requestCount() == 1 }
-
-            clock.advanceMillis(11_000)
-            prompton.refreshBlocking()
-            assertEquals(2, transport.requestCount(), "the refresh ran and was rate-limited")
-
-            repeat(5) { assertTrue(prompton.refreshBlocking(), "the cached document keeps serving") }
-            assertEquals(2, transport.requestCount(), "a rate-limited server is not asked again")
-            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
-
-            prompton.refreshBlocking(force = true)
-            assertEquals(3, transport.requestCount(), "force is the deliberate way through the window")
-
-            clock.advanceMillis(61_000)
-            prompton.refreshBlocking()
-            assertEquals(4, transport.requestCount(), "past Retry-After it asks again")
+        PromptOn(config(transport, 10.seconds), FakeClock()).use { prompton ->
+            assertEquals("Original greeter.", prompton.useCase("greeting").messageTemplates!![0].content)
+            assertEquals(
+                "Summarize:\\n{% for item in items %}- {{ item }}\\n{% endfor %}",
+                prompton.useCase("summarize").textTemplate,
+            )
+            assertEquals(
+                "Original greeter.",
+                prompton.useCase("greeting").messageTemplates!![0].content,
+                "a summarize fetch must not aggregate-merge and mutate greeting's fresh cache",
+            )
+            assertEquals(2, transport.requestCount())
         }
     }
 
     @Test
-    fun `with nothing cached anywhere useCase fails with a clear message`() {
+    fun `failed fetch starts attempt gate and returns stale`() {
+        val calls = AtomicInteger()
+        val transport =
+            StubTransport {
+                if (calls.incrementAndGet() == 1) okResponse() else HttpResponse(503, emptyMap(), "")
+            }
+        val clock = FakeClock()
+        PromptOn(config(transport, 80.milliseconds), clock).use { prompton ->
+            prompton.useCase("greeting")
+            clock.advanceMillis(10_100)
+            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
+            assertEquals(2, calls.get())
+            assertTrue(prompton.useCaseDocumentInfo().stale)
+
+            repeat(5) { prompton.useCase("greeting") }
+            assertEquals(2, calls.get())
+        }
+    }
+
+    @Test
+    fun `timeout falls back to expired cache within one second and ignores late response`() {
+        val transport =
+            StubTransport {
+                Thread.sleep(1_500)
+                okResponse(SnapshotFixtures.useCaseDocument(systemPrompt = "Late prompt."))
+            }
+        PromptOn(
+            PromptOnConfig(
+                apiKey = "ptn_fixture_secret",
+                host = "https://prompton.test",
+                environment = "production",
+                project = "fixture",
+                diskCacheEnabled = false,
+                bundlePath = writeBundle(),
+                requestTimeout = 5.seconds,
+                transport = transport,
+            ),
+        ).use { prompton ->
+            val started = System.nanoTime()
+            assertEquals("You are a friendly greeter.", prompton.useCase("greeting").messageTemplates!![0].content)
+            val elapsed = (System.nanoTime() - started) / 1_000_000
+            assertTrue(elapsed < 1_250, "stale fallback waited ${elapsed}ms")
+            Thread.sleep(700)
+            assertEquals("You are a friendly greeter.", prompton.useCase("greeting").messageTemplates!![0].content)
+        }
+    }
+
+    @Test
+    fun `cold failure without fallback is explicit and gated`() {
         val transport = StubTransport { HttpResponse(503, emptyMap(), "") }
         PromptOn(config(transport), FakeClock()).use { prompton ->
-            val error = assertFailsWith<UseCaseDocumentUnavailableException> { prompton.useCase("greeting") }
-            assertTrue(error.message!!.contains("unreachable"), error.message!!)
-            assertTrue(error.message!!.contains("production"), error.message!!)
+            assertFailsWith<UseCaseDocumentUnavailableException> { prompton.useCase("greeting") }
+            assertEquals(1, transport.requestCount())
+            assertFailsWith<UseCaseDocumentUnavailableException> { prompton.useCase("greeting") }
+            assertEquals(1, transport.requestCount())
         }
     }
 
     @Test
-    fun `fetch once now is synchronous and export writes a bundle`() {
-        val transport = StubTransport { okResponse() }
-        val bundle = tempDir.resolve("prompts.production.json")
-        PromptOn(config(transport).copy(pollingEnabled = false), FakeClock()).use { prompton ->
-            assertTrue(prompton.refreshBlocking())
-            prompton.exportUseCaseDocument(bundle)
+    fun `same key concurrent callers share one fetch`() {
+        val transport =
+            StubTransport {
+                Thread.sleep(150)
+                okResponse()
+            }
+        PromptOn(config(transport), FakeClock()).use { prompton ->
+            runConcurrent(24) {
+                assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
+            }
+            assertEquals(1, transport.requestCount())
         }
-        val exported = UseCaseDocument.parse(
-            java.nio.file.Files
-                .readString(bundle),
-        )
-        assertEquals("production", exported.environment)
-        assertEquals("fixture", exported.project)
-        assertTrue(
-            java.nio.file.Files
-                .exists(tempDir.resolve("prompts.production.json.meta.json")),
-        )
     }
 
-    private fun errorBody(
-        code: String,
-        message: String,
-    ) = """{"error":{"code":"$code","message":"$message","details":{}}}"""
+    @Test
+    fun `different keys do not wait behind each other`() {
+        val transport =
+            StubTransport { request ->
+                if (request.url.contains("/greeting?")) Thread.sleep(900)
+                okResponse(SnapshotFixtures.twoUseCases(), etag = "\"${request.url}\"")
+            }
+        PromptOn(config(transport), FakeClock()).use { prompton ->
+            val pool = Executors.newFixedThreadPool(2)
+            try {
+                val slow = pool.submit<String> { prompton.useCase("greeting").model!! }
+                Thread.sleep(50)
+                val started = System.nanoTime()
+                assertEquals("openai/gpt-4o-mini", prompton.useCase("summarize").model)
+                val elapsed = (System.nanoTime() - started) / 1_000_000
+                assertTrue(elapsed < 400, "summarize waited behind greeting for ${elapsed}ms")
+                assertEquals("openai/gpt-4o-mini", slow.get(3, TimeUnit.SECONDS))
+            } finally {
+                pool.shutdownNow()
+            }
+        }
+    }
+
+    @Test
+    fun `scope mismatch is rejected and bundle fallback keeps serving`() {
+        val transport = StubTransport { okResponse(SnapshotFixtures.useCaseDocument(environment = "staging")) }
+        val clock = FakeClock()
+        PromptOn(
+            PromptOnConfig(
+                apiKey = "ptn_fixture_secret",
+                host = "https://prompton.test",
+                environment = "production",
+                project = "fixture",
+                cacheTtl = 50.milliseconds,
+                diskCacheEnabled = false,
+                bundlePath = writeBundle(),
+                transport = transport,
+            ),
+            clock,
+        ).use { prompton ->
+            clock.advanceMillis(10_100)
+            assertEquals(UseCaseSource.BUNDLE, prompton.useCase("greeting").source)
+            assertTrue(prompton.useCaseDocumentInfo().stale)
+        }
+    }
+
+    @Test
+    fun `restart loads each persisted prompt from its own disk entry when remote fails`() {
+        val cache = tempDir.resolve("snapshot.json")
+        val transport =
+            StubTransport { request ->
+                if (request.url.contains("/summarize?")) {
+                    okResponse(
+                        SnapshotFixtures.useCaseDocument(systemPrompt = "Updated greeter."),
+                        etag = "\"summarize-v2\"",
+                    )
+                } else {
+                    okResponse(
+                        SnapshotFixtures.useCaseDocument(systemPrompt = "Original greeter."),
+                        etag = "\"greeting-v1\"",
+                    )
+                }
+            }
+        PromptOn(config(transport).copy(diskCacheEnabled = true, diskCachePath = cache), FakeClock()).use { prompton ->
+            assertEquals("Original greeter.", prompton.useCase("greeting").messageTemplates!![0].content)
+            assertEquals(
+                "Summarize:\\n{% for item in items %}- {{ item }}\\n{% endfor %}",
+                prompton.useCase("summarize").textTemplate,
+            )
+        }
+
+        val failing = StubTransport { HttpResponse(503, emptyMap(), "") }
+        PromptOn(config(failing).copy(diskCacheEnabled = true, diskCachePath = cache), FakeClock()).use { prompton ->
+            assertEquals("Original greeter.", prompton.useCase("greeting").messageTemplates!![0].content)
+            assertEquals(
+                "Summarize:\\n{% for item in items %}- {{ item }}\\n{% endfor %}",
+                prompton.useCase("summarize").textTemplate,
+            )
+            val entries = Ptn.asObject(Ptn.parseObject(Files.readString(cache))["entries"])!!
+            assertEquals(setOf("greeting", "summarize"), entries.keys)
+        }
+    }
+
+    @Test
+    fun `refresh does not restore bulk polling`() {
+        val transport = StubTransport { okResponse() }
+        PromptOn(config(transport), FakeClock()).use { prompton ->
+            assertEquals(false, prompton.refreshBlocking())
+            assertEquals(0, transport.requestCount())
+        }
+    }
+
+    @Test
+    fun `default transport enforces one second config timeout against a slow local server`() {
+        SlowServer(1_500, SnapshotFixtures.useCaseDocument()).use { server ->
+            PromptOn(
+                PromptOnConfig(
+                    apiKey = "ptn_fixture_secret",
+                    host = server.host,
+                    environment = "production",
+                    project = "fixture",
+                    diskCacheEnabled = false,
+                    bundlePath = writeBundle(),
+                    requestTimeout = 5.seconds,
+                ),
+            ).use { prompton ->
+                val started = System.nanoTime()
+                assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
+                val elapsed = (System.nanoTime() - started) / 1_000_000
+                assertTrue(elapsed < 1_250, "default transport waited ${elapsed}ms")
+            }
+        }
+    }
+
+    private fun writeBundle(): Path {
+        val path = tempDir.resolve("prompts.production.json")
+        SnapshotFilesForTest.write(path, SnapshotFixtures.useCaseDocument())
+        return path
+    }
+
+    private fun runConcurrent(
+        threads: Int,
+        block: () -> Unit,
+    ) {
+        val start = CountDownLatch(1)
+        val done = CountDownLatch(threads)
+        val pool = Executors.newFixedThreadPool(threads)
+        try {
+            repeat(threads) {
+                pool.execute {
+                    try {
+                        start.await()
+                        block()
+                    } finally {
+                        done.countDown()
+                    }
+                }
+            }
+            start.countDown()
+            assertTrue(done.await(10, TimeUnit.SECONDS))
+        } finally {
+            pool.shutdownNow()
+        }
+    }
+}
+
+private object SnapshotFilesForTest {
+    fun write(
+        path: Path,
+        body: String,
+    ) {
+        Files
+            .createDirectories(path.parent)
+        Files
+            .writeString(path, body)
+        Files
+            .writeString(
+                path.resolveSibling("${path.fileName}.meta.json"),
+                """{"environment":"production","project":"fixture"}""",
+            )
+    }
+}
+
+private class SlowServer(
+    private val delayMillis: Long,
+    private val body: String,
+) : AutoCloseable {
+    private val server: HttpServer = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+
+    val host: String
+        get() = "http://127.0.0.1:${server.address.port}"
+
+    init {
+        server.createContext("/") { exchange ->
+            Thread.sleep(delayMillis)
+            val bytes = body.toByteArray(Charsets.UTF_8)
+            exchange.responseHeaders.set("content-type", "application/json")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        server.start()
+    }
+
+    override fun close() {
+        server.stop(0)
+    }
 }

@@ -98,8 +98,8 @@ public data class ServerUseCasePrompt(
  * }
  * ```
  *
- * One instance owns one prompt document store and one monitoring-log queue, and is safe to share across
- * threads. Close it on shutdown so the queue drains.
+ * One instance owns one per-prompt config cache and one monitoring-log queue, and is safe to share
+ * across threads. Close it on shutdown so the queue drains.
  */
 public class PromptOn internal constructor(
     public val config: PromptOnConfig,
@@ -149,23 +149,25 @@ public class PromptOn internal constructor(
     /**
      * Reads [key] from the cached prompt document.
      *
-     * Reads memory, and past the cache TTL starts a background revalidation that never blocks
-     * this call. Nothing here talks to PromptOn on the request path.
+     * Uses the key's cached value inside the cache TTL. When stale or missing, this performs one
+     * `GET /prompts/:key` attempt for that key and waits up to one second before falling back to the
+     * last valid value.
      */
     @JvmOverloads
     public fun useCase(
         key: String,
         prompt: String? = null,
     ): UseCase {
-        val entry = snapshots.entry()
+        val entry = snapshots.entry(key)
         return Resolver.resolve(entry.document, key, prompt, entry.source, entry.etag).also { it.owner = this }
     }
 
     /** The prompt names the live deployment of [useCase] pins. */
-    public fun promptNames(useCase: String): List<String> = snapshots.entry().document.promptNames(useCase)
+    public fun promptNames(useCase: String): List<String> = snapshots.entry(useCase).document.promptNames(useCase)
 
     /** The prompt document currently in memory. */
-    public fun useCaseDocument(): UseCaseDocument = snapshots.entry().document
+    public fun useCaseDocument(): UseCaseDocument =
+        snapshots.currentOrNull()?.document ?: throw UseCaseDocumentUnavailableException(config.environment)
 
     public fun useCaseDocumentInfo(): UseCaseDocumentInfo {
         val entry = snapshots.currentOrNull()
@@ -189,12 +191,8 @@ public class PromptOn internal constructor(
     }
 
     /**
-     * Fetches the prompt document once, now, and waits for it. Returns whether a document is in memory
-     * afterwards — a refresh that failed while the cached document keeps serving still returns true.
-     *
-     * While PromptOn is rate-limiting or a backoff is running this returns without calling the
-     * server — the same window the poller obeys — so a health check on a timer cannot hammer a
-     * server that asked for silence. Pass `force = true` to fetch anyway.
+     * Compatibility method from the bulk-refresh era. Runtime config is now fetched on demand by
+     * [useCase], so this never performs a bulk remote request.
      */
     @JvmOverloads
     public fun refreshBlocking(force: Boolean = false): Boolean = snapshots.refreshNow(force)
@@ -583,7 +581,7 @@ public class PromptOn internal constructor(
     private fun policyFor(useCase: String?): PayloadPolicy? {
         if (useCase == null) return null
         return snapshots
-            .currentOrNull()
+            .currentFor(useCase)
             ?.document
             ?.useCases
             ?.get(useCase)

@@ -3,6 +3,16 @@
 All notable changes to the PromptOn Kotlin SDK.
 
 
+## 0.5.0
+
+Demand-driven config fetch release.
+
+- Removed startup and idle config polling. `useCase(key)` now fetches only that prompt key when its cached value is stale or missing.
+- Added per-project/environment/prompt in-memory cache entries with a 10-second freshness TTL and a separate 10-second attempt gate.
+- Added same-key single-flight config fetches, one-second total config-fetch deadline, no SDK retry, stale fallback after failures, and explicit cold-cache failure.
+- Switched runtime config lookup to `GET /api/v1/prompts/{key}?environment=...` with per-key ETag validation. Bulk `GET /prompts` remains outside the normal runtime path.
+- Bumped the SDK version to 0.5.0 for the behavior change.
+
 ## 0.4.2
 
 Patch release aligning native tool prompts and monitoring events with the verified preview runtime contract.

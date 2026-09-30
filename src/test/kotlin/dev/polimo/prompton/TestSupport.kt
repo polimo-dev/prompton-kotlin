@@ -141,7 +141,7 @@ fun assertStaysTrue(
     }
 }
 
-/** Waits until the SDK's background thread has finished processing what it was handed. */
+/** Waits until the SDK's async worker has finished processing what it was handed. */
 fun settle(millis: Long = 150) {
     Thread.sleep(millis)
 }

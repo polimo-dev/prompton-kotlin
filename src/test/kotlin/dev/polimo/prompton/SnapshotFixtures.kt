@@ -24,6 +24,13 @@ object SnapshotFixtures {
               "default_params": {"max_tokens": 512},
               "payload_policy": {"mode": "full", "sample_rate": 1.0, "max_bytes": 262144,
                                  "retention_days": 30, "encrypt": false}
+            },
+            "summarize": {
+              "id": "0198f2a1-0000-7000-8000-0000000000c2",
+              "kind": "text",
+              "input_schema": [{"name": "items", "type": "list", "required": true}],
+              "default_params": {},
+              "payload_policy": {"mode": "full", "sample_rate": 1.0, "max_bytes": 262144}
             }
           },
           "deployments": {
@@ -37,6 +44,14 @@ object SnapshotFixtures {
                 "default": "0198f2a1-0000-7000-8000-00000000a001",
                 "ko": "0198f2a1-0000-7000-8000-00000000a002"
               }
+            },
+            "summarize": {
+              "id": "0198f2a1-0000-7000-8000-00000000d002",
+              "revision": 1,
+              "model_id": "0198f2a1-0000-7000-8000-00000000e001",
+              "params": {},
+              "provider_options": {},
+              "template_pins": {"default": "0198f2a1-0000-7000-8000-00000000a003"}
             }
           },
           "prompt_versions": {
@@ -61,6 +76,14 @@ object SnapshotFixtures {
                 {"role": "user", "content": "{{ name }}에게 한국어로 인사해 주세요."}
               ],
               "text_template": null
+            },
+            "0198f2a1-0000-7000-8000-00000000a003": {
+              "id": "0198f2a1-0000-7000-8000-00000000a003",
+              "prompt_id": "0198f2a1-0000-7000-8000-00000000b003",
+              "number": 1,
+              "engine": "liquid",
+              "messages": [],
+              "text_template": "Summarize:\\n{% for item in items %}- {{ item }}\\n{% endfor %}"
             }
           },
           "models": {
@@ -77,4 +100,6 @@ object SnapshotFixtures {
           }
         }
         """.trimIndent()
+
+    fun twoUseCases(): String = useCaseDocument()
 }

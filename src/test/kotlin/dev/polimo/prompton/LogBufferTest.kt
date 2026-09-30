@@ -103,7 +103,7 @@ class LogBufferTest {
             val sent = batchOf(transport.lastPost()).single()
             val sdk = sent["sdk"] as JsonObject
             assertEquals("prompton-kotlin", (sdk["name"] as JsonPrimitive).content)
-            assertEquals("0.4.2", (sdk["version"] as JsonPrimitive).content)
+            assertEquals("0.5.0", (sdk["version"] as JsonPrimitive).content)
             val id = (sent["id"] as JsonPrimitive).content
             assertEquals('7', id[14], "the version nibble of a UUIDv7 is 7: $id")
             assertNotNull(UuidV7.timestampMillis(id))
@@ -145,9 +145,9 @@ class LogBufferTest {
             assertEquals("2026-09-04T09:00:00Z", (event["observed_at"] as JsonPrimitive).content)
             val sdk = event["sdk"] as JsonObject
             assertEquals("prompton-kotlin", (sdk["name"] as JsonPrimitive).content)
-            assertEquals("0.4.2", (sdk["version"] as JsonPrimitive).content)
+            assertEquals("0.5.0", (sdk["version"] as JsonPrimitive).content)
             val metadataSdk = ((event["metadata"] as JsonObject)["sdk"] as JsonObject)
-            assertEquals("0.4.2", (metadataSdk["version"] as JsonPrimitive).content)
+            assertEquals("0.5.0", (metadataSdk["version"] as JsonPrimitive).content)
             val arguments = event["arguments"] as JsonObject
             assertEquals("mood", (arguments["query"] as JsonPrimitive).content)
         }

@@ -1,5 +1,6 @@
 package dev.polimo.prompton
 
+import dev.polimo.prompton.internal.Ptn
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -53,17 +54,19 @@ class SnapshotTiersTest {
                 )
             }
         PromptOn(config(transport, diskCache = diskCache), FakeClock()).use { prompton ->
-            assertTrue(prompton.refreshBlocking())
+            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
         }
 
         val listing = Files.list(tempDir).use { it.map { path -> path.fileName.toString() }.sorted().toList() }
         assertTrue(Files.exists(diskCache), "disk cache missing, directory holds $listing")
         val sidecar = tempDir.resolve("snapshot.json.meta.json")
         assertTrue(Files.exists(sidecar), "sidecar missing, directory holds $listing")
-        val meta = Files.readString(sidecar)
-        assertTrue(meta.contains(SnapshotFixtures.PRODUCTION_ETAG.replace("\"", "\\\"")), meta)
-        assertTrue(meta.contains("\"environment\":\"production\""), meta)
-        assertTrue(meta.contains("\"project\":\"fixture\""), meta)
+        val body = Files.readString(diskCache)
+        val entry = Ptn.asObject(Ptn.asObject(Ptn.parseObject(body)["entries"])!!["greeting"])!!
+        val meta = Ptn.asObject(entry["meta"])!!
+        assertEquals(SnapshotFixtures.PRODUCTION_ETAG, Ptn.asString(meta["etag"]))
+        assertEquals("production", Ptn.asString(meta["environment"]))
+        assertEquals("fixture", Ptn.asString(meta["project"]))
         assertTrue(listing.none { it.contains(".tmp") }, "a temp file was left behind: $listing")
     }
 

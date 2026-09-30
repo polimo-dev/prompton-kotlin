@@ -10,7 +10,7 @@ import kotlin.time.Duration.Companion.seconds
 
 /** How the SDK talks to the outside world. */
 public enum class PromptOnMode {
-    /** Normal operation: poll the server, cache to disk, send monitoring logs. */
+    /** Normal operation: fetch requested prompt config on demand, cache to disk, send monitoring logs. */
     LIVE,
 
     /** No HTTP at all. Use case documents are injected and monitoring logs are captured for assertions. */
@@ -71,12 +71,12 @@ public data class PromptOnConfig
         val project: String? = Env.get("PTN_PROJECT") ?: projectFromApiKey(apiKey),
         /** How long a prompt document is served without revalidating. */
         val cacheTtl: Duration = 10.seconds,
-        /** Whether a background thread revalidates the prompt document every [cacheTtl]. */
-        val pollingEnabled: Boolean = true,
+        /** Deprecated compatibility option. Config is always fetched on demand per prompt key. */
+        val pollingEnabled: Boolean = false,
         val connectTimeout: Duration = 5.seconds,
         val requestTimeout: Duration = 5.seconds,
-        /** The first fetch after start-up gets a shorter budget so it can never hold up a boot. */
-        val startupFetchTimeout: Duration = 3.seconds,
+        /** Deprecated compatibility option. Demand config fetches use a fixed one-second budget. */
+        val startupFetchTimeout: Duration = 1.seconds,
         /** Mirror every fetched prompt document to a local file. */
         val diskCacheEnabled: Boolean = true,
         /** Where that file lives. Defaults to the OS cache directory, named by project and environment. */
@@ -115,7 +115,7 @@ public data class PromptOnConfig
             public const val DEFAULT_HOST: String = "https://app.prompton.ai"
             public const val DEFAULT_ENVIRONMENT: String = "production"
             public const val SDK_NAME: String = "prompton-kotlin"
-            public const val SDK_VERSION: String = "0.4.2"
+            public const val SDK_VERSION: String = "0.5.0"
 
             /** `ptn_<project_slug>_<random>` carries the project slug; that is where the cache file is named from. */
             public fun projectFromApiKey(apiKey: String?): String? {
