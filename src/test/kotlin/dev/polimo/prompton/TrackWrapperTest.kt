@@ -114,7 +114,7 @@ class TrackWrapperTest {
 
             val record = prompton.capturedRecords().single()
             assertEquals("0198f2a1-0000-7000-8000-00000000d001", field(record, "deployment_id"))
-            assertEquals("3", field(record, "deployment_revision"))
+            assertEquals("v2026.09.30-3", field(record, "deployment_revision"))
             assertEquals("default", field(record, "template"))
             assertEquals("0198f2a1-0000-7000-8000-00000000a001", field(record, "prompt_version_id"))
             assertEquals("openrouter", field(record, "provider"))

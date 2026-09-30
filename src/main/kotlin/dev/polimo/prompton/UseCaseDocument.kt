@@ -160,7 +160,7 @@ public class UseCaseDocument internal constructor(
             Deployment(
                 id = Ptn.asString(raw?.get("id")),
                 useCaseKey = Ptn.asString(raw?.get("use_case_key")) ?: key,
-                revision = Ptn.asInt(raw?.get("revision")),
+                revision = Ptn.asRevision(raw?.get("revision")),
                 modelId = Ptn.asString(raw?.get("model_id")),
                 params = nativeMap(raw?.get("params")),
                 providerOptions = nativeMap(raw?.get("provider_options")),

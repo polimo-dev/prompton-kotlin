@@ -36,7 +36,7 @@ object SnapshotFixtures {
           "deployments": {
             "greeting": {
               "id": "0198f2a1-0000-7000-8000-00000000d001",
-              "revision": 3,
+              "revision": "v2026.09.30-3",
               "model_id": "0198f2a1-0000-7000-8000-00000000e001",
               "params": {"temperature": $temperature},
               "provider_options": {},
@@ -47,7 +47,7 @@ object SnapshotFixtures {
             },
             "summarize": {
               "id": "0198f2a1-0000-7000-8000-00000000d002",
-              "revision": 1,
+              "revision": "v2026.09.30-1",
               "model_id": "0198f2a1-0000-7000-8000-00000000e001",
               "params": {},
               "provider_options": {},

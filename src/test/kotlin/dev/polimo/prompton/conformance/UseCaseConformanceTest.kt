@@ -79,7 +79,7 @@ class UseCaseConformanceTest {
             """
             {"schema_version": 7, "project": "p", "environment": "production",
              "prompts": {"tool_chat": {"id": "u1", "kind": "chat", "default_params": {}}},
-             "deployments": {"tool_chat": {"id": "d1", "revision": 1, "model_id": "m1",
+             "deployments": {"tool_chat": {"id": "d1", "revision": "v2026.09.30-1", "model_id": "m1",
                                           "params": {}, "provider_options": {},
                                           "template_pins": {"default": "v1"}}},
              "prompt_versions": {"v1": {"id": "v1", "number": 1, "engine": "liquid",
@@ -123,7 +123,7 @@ class UseCaseConformanceTest {
             """
             {"schema_version": 7, "project": "p", "environment": "production",
              "prompts": {"tool_chat": {"id": "u1", "kind": "chat", "default_params": {}}},
-             "deployments": {"tool_chat": {"id": "d1", "revision": 1, "model_id": "m1",
+             "deployments": {"tool_chat": {"id": "d1", "revision": "v2026.09.30-1", "model_id": "m1",
                                           "params": {}, "provider_options": {},
                                           "template_pins": {"default": "v1"}}},
              "prompt_versions": {"v1": {"id": "v1", "number": 1, "engine": "liquid",
@@ -153,7 +153,7 @@ class UseCaseConformanceTest {
             """
             {"schema_version": 7, "project": "p", "environment": "production",
              "prompts": {"tool_chat": {"id": "u1", "kind": "chat", "default_params": {}}},
-             "deployments": {"tool_chat": {"id": "d1", "revision": 1, "model_id": "m1",
+             "deployments": {"tool_chat": {"id": "d1", "revision": "v2026.09.30-1", "model_id": "m1",
                                           "params": {"parallel_tool_calls": true}, "provider_options": {},
                                           "template_pins": {"default": "v1"}}},
              "prompt_versions": {"v1": {"id": "v1", "number": 1, "engine": "liquid",

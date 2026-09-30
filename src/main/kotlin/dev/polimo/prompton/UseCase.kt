@@ -11,7 +11,7 @@ public data class UseCase(
     val kind: UseCaseKind,
     val environment: String,
     val deploymentId: String?,
-    val deploymentRevision: Int?,
+    val deploymentRevision: String?,
     /** The chosen prompt name, `null` for an embedding prompt. */
     val prompt: String?,
     /** Every prompt name the live revision pins, sorted. */

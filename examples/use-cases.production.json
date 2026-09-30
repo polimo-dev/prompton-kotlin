@@ -10,7 +10,7 @@
         "default": "01a069cb-07f1-7c90-b3a6-cdf8d2d7ed48"
       },
       "provider_options": {},
-      "revision": 1
+      "revision": "v2026.09.30-1"
     }
   },
   "environment": "production",

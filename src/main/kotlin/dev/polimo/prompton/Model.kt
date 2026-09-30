@@ -103,7 +103,7 @@ public data class UseCaseEntry(
 public data class Deployment(
     val id: String?,
     val useCaseKey: String,
-    val revision: Int?,
+    val revision: String?,
     val modelId: String?,
     val params: Map<String, Any?>,
     val providerOptions: Map<String, Any?>,

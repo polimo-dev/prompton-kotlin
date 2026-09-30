@@ -133,7 +133,7 @@ public data class LogRecord
         val id: String? = null,
         val kind: UseCaseKind? = null,
         val deploymentId: String? = null,
-        val deploymentRevision: Int? = null,
+        val deploymentRevision: String? = null,
         val prompt: String? = null,
         val promptVersionId: String? = null,
         val modelId: String? = null,

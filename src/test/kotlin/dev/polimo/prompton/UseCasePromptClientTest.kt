@@ -31,7 +31,7 @@ class UseCasePromptClientTest {
         {
           "key": "greeting",
           "kind": "chat",
-          "deployment": {"id": "0198f2a1-0000-7000-8000-00000000d001", "revision": 3},
+          "deployment": {"id": "0198f2a1-0000-7000-8000-00000000d001", "revision": "v2026.09.30-3"},
           "template": "default",
           "template_names": ["default", "ko"],
           "source": "disk",
@@ -70,7 +70,7 @@ class UseCasePromptClientTest {
             val useCase = prompton.useCaseRemoteBlocking("greeting")
             assertEquals("greeting", useCase.key)
             assertEquals("openai/gpt-4o-mini", useCase.model)
-            assertEquals(3, useCase.deploymentRevision)
+            assertEquals("v2026.09.30-3", useCase.deploymentRevision)
             assertEquals(listOf("default", "ko"), useCase.promptNames)
             assertEquals(UseCaseSource.DISK, useCase.source)
             assertEquals("Say hello to Ada.", useCase.messages(mapOf("name" to "Ada"))[1].content)
