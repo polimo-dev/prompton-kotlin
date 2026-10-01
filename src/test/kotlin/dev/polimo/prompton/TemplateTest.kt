@@ -56,4 +56,34 @@ class TemplateTest {
 
         assertEquals(nativeMessage, rendered)
     }
+
+    @Test
+    fun `native messages without content keep content absent during rendering`() {
+        val absent =
+            PromptMessage(
+                role = "assistant",
+                content = "",
+                name = "helper",
+                type = "native",
+                hasContent = false,
+                extra = mapOf("reasoning" to "opaque"),
+            )
+        val explicitNull =
+            PromptMessage(role = "assistant", content = "", contentValue = null, hasContent = true)
+        val emptyString = PromptMessage(role = "assistant", content = "")
+        val emptyArray =
+            PromptMessage(
+                role = "assistant",
+                content = "",
+                contentValue = emptyList<Any?>(),
+                hasContent = true,
+            )
+
+        val rendered = Template.renderMessages(listOf(absent, explicitNull, emptyString, emptyArray))
+
+        assertEquals(absent, rendered[0])
+        assertEquals(explicitNull, rendered[1])
+        assertEquals(emptyString, rendered[2])
+        assertEquals(emptyArray, rendered[3])
+    }
 }

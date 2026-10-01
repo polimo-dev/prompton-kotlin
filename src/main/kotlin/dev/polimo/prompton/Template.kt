@@ -83,7 +83,7 @@ public object Template {
             for (message in messages) {
                 if (message.type == "slot") {
                     throw TemplateRenderException(MESSAGE_SLOT_ERROR)
-                } else if (message.contentValue is String || !message.hasContent) {
+                } else if (message.hasContent && message.contentValue is String) {
                     val rendered = render(message.content, vars, engine)
                     add(message.copy(content = rendered, contentValue = rendered, hasContent = true))
                 } else {

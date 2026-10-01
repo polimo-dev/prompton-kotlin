@@ -241,6 +241,22 @@ class TrackWrapperTest {
                     listOf(
                         PromptMessage(role = "assistant", content = "Earlier answer."),
                         PromptMessage(role = "user", content = "Thanks, continue."),
+                        PromptMessage(
+                            role = "assistant",
+                            content = "",
+                            name = "helper",
+                            type = "native",
+                            hasContent = false,
+                            extra = mapOf("reasoning" to "opaque"),
+                        ),
+                        PromptMessage(role = "assistant", content = "", contentValue = null, hasContent = true),
+                        PromptMessage(role = "assistant", content = ""),
+                        PromptMessage(
+                            role = "assistant",
+                            content = "",
+                            contentValue = emptyList<Any?>(),
+                            hasContent = true,
+                        ),
                     )
 
             useCase.trackBlocking(
@@ -254,9 +270,17 @@ class TrackWrapperTest {
 
             val input = prompton.capturedRecords().single()["input"] as JsonObject
             val messages = input["messages"] as kotlinx.serialization.json.JsonArray
-            assertEquals(4, messages.size)
+            assertEquals(8, messages.size)
             assertEquals("Earlier answer.", ((messages[2] as JsonObject)["content"] as JsonPrimitive).content)
             assertEquals("Thanks, continue.", ((messages[3] as JsonObject)["content"] as JsonPrimitive).content)
+            val absentContent = messages[4] as JsonObject
+            assertEquals("native", (absentContent["type"] as JsonPrimitive).content)
+            assertEquals("helper", (absentContent["name"] as JsonPrimitive).content)
+            assertEquals("opaque", (absentContent["reasoning"] as JsonPrimitive).content)
+            assertEquals(false, absentContent.containsKey("content"))
+            assertEquals(kotlinx.serialization.json.JsonNull, (messages[5] as JsonObject)["content"])
+            assertEquals("", ((messages[6] as JsonObject)["content"] as JsonPrimitive).content)
+            assertEquals(0, ((messages[7] as JsonObject)["content"] as kotlinx.serialization.json.JsonArray).size)
         }
     }
 
