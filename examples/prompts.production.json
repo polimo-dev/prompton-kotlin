@@ -6,7 +6,7 @@
       "params": {
         "temperature": 0.2
       },
-      "prompt_pins": {
+      "template_pins": {
         "default": "01a069cb-07f1-7c90-b3a6-cdf8d2d7ed48"
       },
       "provider_options": {},
@@ -54,7 +54,7 @@
     }
   },
   "schema_version": 4,
-  "use_cases": {
+  "prompts": {
     "greeting": {
       "default_params": {
         "max_tokens": 256

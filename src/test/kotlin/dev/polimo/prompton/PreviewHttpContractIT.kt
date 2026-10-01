@@ -41,10 +41,15 @@ class PreviewHttpContractIT {
             ),
         ).use { prompton ->
             val variables = variables()
+            val appHistory = appHistory()
 
             val local = prompton.useCase(key)
             assertEquals(key, local.key)
-            assertProviderPayload(expectedRender, local.messages(variables), local.params)
+            val managedMessages = local.messages(variables)
+            assertProviderPayload(expectedRender, managedMessages, local.params)
+            val finalMessages =
+                managedMessages + appHistory + PromptMessage(role = "user", content = "Tell me about park walks.")
+            assertEquals(managedMessages.size + appHistory.size + 1, finalMessages.size)
 
             val remote = prompton.promptOnServerBlocking(key, variables = variables)
             assertMessages(expectedRender, remote.messages ?: emptyList())
@@ -125,7 +130,7 @@ class PreviewHttpContractIT {
         message.extra.forEach { (key, value) -> fields[key] = Ptn.toElement(value) }
         message.type?.let { fields["type"] = JsonPrimitive(it) }
         fields["role"] = JsonPrimitive(message.role)
-        if (message.hasContent || message.type != "slot") fields["content"] = Ptn.toElement(message.contentValue)
+        if (message.hasContent) fields["content"] = Ptn.toElement(message.contentValue)
         message.name?.let { fields["name"] = JsonPrimitive(it) }
         message.toolCallId?.let { fields["tool_call_id"] = JsonPrimitive(it) }
         if (message.hasToolCalls || message.toolCalls.isNotEmpty()) {
@@ -134,35 +139,39 @@ class PreviewHttpContractIT {
         return JsonObject(fields)
     }
 
-    private fun variables(): Map<String, Any?> {
-        val assistant = linkedMapOf<String, Any?>(
-            "role" to "assistant",
-            "content" to null,
-            "tool_calls" to
-                listOf(
+    private fun variables(): Map<String, Any?> = mapOf("locale" to "ko-KR", "topic" to "park walks")
+
+    private fun appHistory(): List<PromptMessage> {
+        val toolCalls = listOf(
+            mapOf(
+                "id" to "call_prior_1",
+                "type" to "function",
+                "function" to
                     mapOf(
-                        "id" to "call_prior_1",
-                        "type" to "function",
-                        "function" to
-                            mapOf(
-                                "name" to "search_diaries",
-                                "arguments" to "{\"query\":\"park walks\",\"limit\":1}",
-                            ),
+                        "name" to "search_diaries",
+                        "arguments" to "{\"query\":\"park walks\",\"limit\":1}",
                     ),
-                ),
+            ),
         )
-        val history =
-            listOf(
-                mapOf("role" to "user", "content" to "지난 산책 일기를 찾아줘"),
-                assistant,
-                mapOf(
-                    "role" to "tool",
-                    "name" to "search_diaries",
-                    "tool_call_id" to "call_prior_1",
-                    "content" to listOf(mapOf("type" to "text", "text" to "{\"entries\":[\"A prior park walk.\"]}")),
-                ),
-            )
-        return mapOf("locale" to "ko-KR", "topic" to "park walks", "history" to history)
+        return listOf(
+            PromptMessage(role = "user", content = "지난 산책 일기를 찾아줘"),
+            PromptMessage(
+                role = "assistant",
+                content = "",
+                contentValue = null,
+                hasContent = true,
+                toolCalls = toolCalls,
+                hasToolCalls = true,
+            ),
+            PromptMessage(
+                role = "tool",
+                content = "",
+                name = "search_diaries",
+                toolCallId = "call_prior_1",
+                contentValue = listOf(mapOf("type" to "text", "text" to "{\"entries\":[\"A prior park walk.\"]}")),
+                hasContent = true,
+            ),
+        )
     }
 
     private class RecordingTransport : HttpTransport {

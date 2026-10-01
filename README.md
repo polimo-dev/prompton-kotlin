@@ -12,7 +12,7 @@ last prompt document it received.
 
 ```
 useCase("greeting")        ──▶  UseCase(model, params, provider options, pinned prompt)
-useCase.messages(vars)     ──▶  chat messages
+useCase.messages(vars)     ──▶  messages PromptOn manages
 useCase.text(vars)         ──▶  text prompt
 useCase.track(meta) { … }  ──▶  monitoring log, sent in batches
 ```
@@ -42,12 +42,13 @@ dependencies {
 val prompton = PromptOn() // reads PTN_HOST and PTN_API_KEY
 val useCase = prompton.useCase("greeting") // memory-cached, no HTTP on this path
 val variables = mapOf("name" to "Ada")
-val messages = useCase.messages(variables)
+val managedMessages = useCase.messages(variables)
+val finalMessages = managedMessages + conversationHistory + PromptMessage(role = "user", content = userText)
 
 val answer = useCase.trackBlocking(
-    TrackMeta(variables = variables, inputMessages = messages),
+    TrackMeta(variables = variables, inputMessages = finalMessages),
 ) { call ->
-    val reply = myOpenAiClient.chat(useCase.model!!, messages, useCase.params)
+    val reply = myOpenAiClient.chat(useCase.model!!, finalMessages, useCase.params)
     call.result(Result.fromOpenAI(reply))
     reply.text
 }
@@ -177,6 +178,24 @@ The pinned prompt is a Liquid subset, rendered locally:
 Template.render("Hello {{ name }}", mapOf("name" to "Ada"))   // "Hello Ada"
 Template.lint("{{ s | upcase }}")                             // [LintReason(disallowed_filter, upcase)]
 Template.variables("{% for t in notes %}{{ t }}{% endfor %}") // ["notes"]
+```
+
+For chat calls, PromptOn returns only the messages managed in the editor, usually the system and
+developer instructions. Conversation history and the current user message belong to your app:
+
+```kotlin
+val variables = mapOf("locale" to "ko-KR")
+val managedMessages = useCase.messages(variables)
+val finalMessages =
+    managedMessages +
+        loadConversationHistory(conversationId) +
+        PromptMessage(role = "user", content = userText)
+
+val reply = myOpenAiClient.chat(useCase.model!!, finalMessages, useCase.params)
+useCase.trackBlocking(TrackMeta(variables = variables, inputMessages = finalMessages)) {
+    it.result(Result(content = reply.text))
+    reply.text
+}
 ```
 
 ## Monitoring logs

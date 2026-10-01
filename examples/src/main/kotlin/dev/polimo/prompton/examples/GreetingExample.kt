@@ -15,7 +15,7 @@ import java.nio.file.Path
  *
  * Run it with `./gradlew :examples:run`. With `PTN_API_KEY` set it fetches the live use case document and
  * sends the monitoring log; without one it runs offline on the committed
- * `examples/use-cases.production.json` bundle — which is the same thing your app does when PromptOn
+ * `examples/prompts.production.json` bundle — which is the same thing your app does when PromptOn
  * is unreachable.
  */
 fun main() {
@@ -41,9 +41,15 @@ fun main() {
         println("pin           : deployment ${useCase.deploymentRevision}, prompt '${useCase.prompt}'")
         println("configuration : ${useCase.source.wire}")
 
-        // 2. This call's variables go into the pinned template.
+        // 2. Render the messages PromptOn manages, then add the app-owned conversation state.
         val variables = mapOf("name" to "Ada")
-        val messages = useCase.messages(variables)
+        val managedMessages = useCase.messages(variables)
+        val messages =
+            managedMessages +
+                listOf(
+                    PromptMessage(role = "assistant", content = "Earlier answer."),
+                    PromptMessage(role = "user", content = "Say hello to Ada."),
+                )
         println("messages      : $messages")
 
         // 3. Your provider, your key, your HTTP client. PromptOn is never in this path.
@@ -99,6 +105,6 @@ private fun fakeProvider(
 }
 
 private fun bundlePath(): Path {
-    val candidates = listOf(Path.of("use-cases.production.json"), Path.of("examples/use-cases.production.json"))
+    val candidates = listOf(Path.of("prompts.production.json"), Path.of("examples/prompts.production.json"))
     return candidates.firstOrNull { Files.isRegularFile(it) } ?: candidates.first()
 }

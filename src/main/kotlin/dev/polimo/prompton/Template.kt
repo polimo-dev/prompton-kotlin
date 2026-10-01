@@ -44,6 +44,9 @@ public data class LintReason(
  * source; it is not checked in a branch that does not execute.
  */
 public object Template {
+    internal const val MESSAGE_SLOT_ERROR: String =
+        "Message slots are not supported; compose conversation history in app code."
+
     /** The tag names the subset allows. */
     public val allowedTags: List<String> = TemplateParser.ALLOWED_TAGS.sorted()
 
@@ -79,25 +82,7 @@ public object Template {
             val vars = variables ?: emptyMap()
             for (message in messages) {
                 if (message.type == "slot") {
-                    val slot = vars[message.name] as? List<*> ?: continue
-                    for (entry in slot) {
-                        @Suppress("UNCHECKED_CAST")
-                        val map = entry as? Map<String, Any?> ?: continue
-                        add(
-                            PromptMessage(
-                                role = map["role"]?.toString() ?: "",
-                                content = map["content"] as? String ?: "",
-                                name = map["name"]?.toString(),
-                                type = map["type"]?.toString(),
-                                contentValue = map["content"],
-                                hasContent = map.containsKey("content"),
-                                toolCallId = map["tool_call_id"]?.toString(),
-                                toolCalls = nativeToolCalls(map["tool_calls"]),
-                                hasToolCalls = map.containsKey("tool_calls"),
-                                extra = map - setOf("role", "type", "content", "name", "tool_call_id", "tool_calls"),
-                            ),
-                        )
-                    }
+                    throw TemplateRenderException(MESSAGE_SLOT_ERROR)
                 } else if (message.contentValue is String || !message.hasContent) {
                     val rendered = render(message.content, vars, engine)
                     add(message.copy(content = rendered, contentValue = rendered, hasContent = true))
@@ -106,12 +91,6 @@ public object Template {
                 }
             }
         }
-
-    private fun nativeToolCalls(value: Any?): List<Map<String, Any?>> =
-        (value as? List<*>)
-            ?.mapNotNull { entry ->
-                (entry as? Map<*, *>)?.entries?.associate { (key, item) -> key.toString() to item }
-            }.orEmpty()
 
     /**
      * The static whitelist check the PromptOn server runs when a prompt version is committed. An

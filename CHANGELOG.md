@@ -2,6 +2,14 @@
 
 All notable changes to the PromptOn Kotlin SDK.
 
+## Unreleased
+
+- Message slots are no longer expanded by the SDK. A prompt document containing a `type: "slot"`
+  chat message now fails during rendering and applications should compose conversation history and
+  the current user message in app code before calling the provider.
+- Documentation and examples now show logging the final app-composed `inputMessages` while keeping
+  ordinary variables such as `history` available as normal template variables.
+
 
 ## 0.5.0
 

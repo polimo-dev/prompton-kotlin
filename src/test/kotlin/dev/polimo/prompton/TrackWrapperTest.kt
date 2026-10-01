@@ -232,6 +232,35 @@ class TrackWrapperTest {
     }
 
     @Test
+    fun `tracked input records the final messages composed by the app`() {
+        prompton().use { prompton ->
+            val useCase = prompton.useCase("greeting")
+            val managed = useCase.messages(mapOf("name" to "Ada"))
+            val finalMessages =
+                managed +
+                    listOf(
+                        PromptMessage(role = "assistant", content = "Earlier answer."),
+                        PromptMessage(role = "user", content = "Thanks, continue."),
+                    )
+
+            useCase.trackBlocking(
+                TrackMeta(
+                    variables = mapOf("name" to "Ada"),
+                    inputMessages = finalMessages,
+                ),
+            ) { call ->
+                call.result(Result(content = "Sure."))
+            }
+
+            val input = prompton.capturedRecords().single()["input"] as JsonObject
+            val messages = input["messages"] as kotlinx.serialization.json.JsonArray
+            assertEquals(4, messages.size)
+            assertEquals("Earlier answer.", ((messages[2] as JsonObject)["content"] as JsonPrimitive).content)
+            assertEquals("Thanks, continue.", ((messages[3] as JsonObject)["content"] as JsonPrimitive).content)
+        }
+    }
+
+    @Test
     fun `error kinds map from provider http statuses`() {
         assertEquals(ErrorKind.RATE_LIMITED, ErrorKind.ofStatus(429))
         assertEquals(ErrorKind.HTTP_4XX, ErrorKind.ofStatus(400))
