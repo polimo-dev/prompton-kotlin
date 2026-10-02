@@ -45,6 +45,27 @@ class LogBufferTest {
         traceId = "trace-$index",
     )
 
+    private fun closedTransportRecord() =
+        LogRecord(
+            useCase = "greeting",
+            model = "openai/gpt-4o-mini",
+            status = LogStatus.ERROR,
+            startedAt = startedAt,
+            error =
+                LogError(
+                    ErrorKind.TRANSPORT,
+                    message = "failed to send request: %Req.TransportError{reason: :closed}",
+                ),
+        )
+
+    private fun completionEvent(output: String): Map<String, Any?> =
+        mapOf(
+            "trace_id" to "trace-1",
+            "event_kind" to "completion",
+            "status" to "error",
+            "completion_output" to output,
+        )
+
     private fun accepted(count: Int) =
         HttpResponse(202, emptyMap(), """{"accepted":$count,"duplicates":0,"rejected":[]}""")
 
@@ -174,6 +195,59 @@ class LogBufferTest {
             assertEquals(1, result.accepted)
             assertEquals(1, result.duplicates)
             assertEquals("evt-bad", result.rejected.single()["event_id"])
+        }
+    }
+
+    @Test
+    fun `logEvents omits closed req transport completion errors after validation`() {
+        val transport = transport { accepted(1) }
+        PromptOn(config(transport).copy(mode = PromptOnMode.TEST), FakeClock(startedAt)).use { prompton ->
+            val result =
+                prompton.logEvents(
+                    listOf(
+                        completionEvent("%Req.TransportError{reason: :closed}"),
+                        completionEvent("failed to send request: %Req.TransportError{reason: :closed}"),
+                        completionEvent(
+                            "failed to call LLM: failed to send request: %Req.TransportError{reason: :closed}",
+                        ),
+                    ),
+                )
+
+            assertEquals(0, result.accepted)
+            assertEquals(0, prompton.capturedEvents().size)
+        }
+
+        PromptOn(config(transport), FakeClock(startedAt)).use { prompton ->
+            val result =
+                prompton.logEvents(
+                    listOf(completionEvent("failed to send request: %Req.TransportError{reason: :closed}")),
+                )
+
+            assertEquals(0, result.accepted)
+            assertEquals(0, transport.postCount())
+        }
+    }
+
+    @Test
+    fun `logEvents keeps other completion errors and mixed order`() {
+        val transport = transport { accepted(2) }
+        PromptOn(config(transport).copy(mode = PromptOnMode.TEST), FakeClock(startedAt)).use { prompton ->
+            val result =
+                prompton.logEvents(
+                    listOf(
+                        completionEvent("provider returned 500"),
+                        completionEvent("failed to send request: %Req.TransportError{reason: :closed}"),
+                        completionEvent("failed to send request: %Req.TransportError{reason: :timeout}"),
+                    ),
+                )
+
+            assertEquals(2, result.accepted)
+            val events = prompton.capturedEvents()
+            assertEquals("provider returned 500", (events[0]["completion_output"] as JsonPrimitive).content)
+            assertEquals(
+                "failed to send request: %Req.TransportError{reason: :timeout}",
+                (events[1]["completion_output"] as JsonPrimitive).content,
+            )
         }
     }
 
@@ -558,6 +632,76 @@ class LogBufferTest {
 
             prompton.clearCapturedRecords()
             assertEquals(0, prompton.capturedRecords().size)
+        }
+    }
+
+    @Test
+    fun `closed req transport errors are omitted before capture or send`() {
+        val testTransport = StubTransport { error("test mode must not make requests") }
+        val redacting =
+            LogOptions(
+                flushInterval = 60.seconds,
+                flushSize = 1_000,
+                flushBytes = 100_000_000,
+                redact = { error("closed transport records are filtered before redaction") },
+            )
+        PromptOn(
+            config(testTransport, redacting).copy(mode = PromptOnMode.TEST),
+            FakeClock(startedAt),
+        ).use { prompton ->
+            prompton.log(closedTransportRecord())
+            prompton.log(
+                mapOf(
+                    "prompt_key" to "greeting",
+                    "model" to "openai/gpt-4o-mini",
+                    "status" to "error",
+                    "started_at" to startedAt.toString(),
+                    "error" to
+                        mapOf(
+                            "kind" to "transport",
+                            "message" to "%Req.TransportError{reason: :closed}",
+                        ),
+                ),
+            )
+
+            assertEquals(0, prompton.capturedRecords().size)
+        }
+
+        val transport = transport { accepted(1) }
+        PromptOn(config(transport), FakeClock(startedAt)).use { prompton ->
+            prompton.log(closedTransportRecord())
+            val result = prompton.flushBlocking()
+
+            assertEquals(0, result.accepted)
+            assertEquals(0, transport.postCount())
+        }
+    }
+
+    @Test
+    fun `closed req transport filter requires exact kind status and message`() {
+        val transport = StubTransport { error("test mode must not make requests") }
+        PromptOn(config(transport).copy(mode = PromptOnMode.TEST), FakeClock(startedAt)).use { prompton ->
+            prompton.log(
+                closedTransportRecord().copy(
+                    error =
+                        LogError(
+                            ErrorKind.TIMEOUT,
+                            message = "failed to send request: %Req.TransportError{reason: :closed}",
+                        ),
+                ),
+            )
+            prompton.log(
+                closedTransportRecord().copy(
+                    error =
+                        LogError(
+                            ErrorKind.TRANSPORT,
+                            message = "failed to send request: %Req.TransportError{reason: :timeout}",
+                        ),
+                ),
+            )
+            prompton.log(closedTransportRecord().copy(status = LogStatus.OK))
+
+            assertEquals(3, prompton.capturedRecords().size)
         }
     }
 }

@@ -9,6 +9,8 @@ All notable changes to the PromptOn Kotlin SDK.
   the current user message in app code before calling the provider.
 - Documentation and examples now show logging the final app-composed `inputMessages` while keeping
   ordinary variables such as `history` available as normal template variables.
+- Omit the exact closed Req transport retry noise from monitoring records and completion trace
+  events while preserving all other transport, timeout and application errors.
 
 
 ## 0.5.0

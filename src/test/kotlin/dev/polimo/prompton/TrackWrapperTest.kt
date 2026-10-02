@@ -11,7 +11,10 @@ import kotlin.test.assertTrue
 
 /** The convenience wrapper: it times the provider call, logs it, and gets out of the way. */
 class TrackWrapperTest {
-    private fun prompton(clock: FakeClock = FakeClock()): PromptOn {
+    private fun prompton(
+        clock: FakeClock = FakeClock(),
+        log: LogOptions = LogOptions(),
+    ): PromptOn {
         val config =
             PromptOnConfig(
                 apiKey = null,
@@ -20,6 +23,7 @@ class TrackWrapperTest {
                 project = "fixture",
                 pollingEnabled = false,
                 diskCacheEnabled = false,
+                log = log,
             )
         val prompton = PromptOn(config, clock)
         prompton.putUseCaseDocument(SnapshotFixtures.useCaseDocument(), UseCaseSource.REMOTE)
@@ -84,6 +88,27 @@ class TrackWrapperTest {
     }
 
     @Test
+    fun `a closed req transport message thrown by the block is still app logged and rethrown`() {
+        prompton().use { prompton ->
+            val useCase = prompton.useCase("greeting")
+            val thrown =
+                assertFailsWith<IllegalStateException> {
+                    useCase.trackBlocking {
+                        throw IllegalStateException(
+                            "failed to send request: %Req.TransportError{reason: :closed}",
+                        )
+                    }
+                }
+
+            assertEquals("failed to send request: %Req.TransportError{reason: :closed}", thrown.message)
+            val record = prompton.capturedRecords().single()
+            val error = record["error"] as JsonObject
+            assertEquals("app", (error["kind"] as JsonPrimitive).content)
+            assertTrue((error["message"] as JsonPrimitive).content.contains("%Req.TransportError{reason: :closed}"))
+        }
+    }
+
+    @Test
     fun `a recorded failure keeps the usage and output that came with it`() {
         prompton().use { prompton ->
             val useCase = prompton.useCase("greeting")
@@ -103,6 +128,30 @@ class TrackWrapperTest {
             assertEquals("length", field(record, "stop_kind"))
             assertEquals("parse", ((record["error"] as JsonObject)["kind"] as JsonPrimitive).content)
             assertEquals("38", ((record["usage"] as JsonObject)["input_tokens"] as JsonPrimitive).content)
+        }
+    }
+
+    @Test
+    fun `a closed req transport recorded failure returns its value but is not captured`() {
+        val log =
+            LogOptions(
+                redact = { error("closed transport records are filtered before redaction") },
+            )
+        prompton(log = log).use { prompton ->
+            val useCase = prompton.useCase("greeting")
+            val answer =
+                useCase.trackBlocking { call ->
+                    call.failed(
+                        LogError(
+                            ErrorKind.TRANSPORT,
+                            message = "failed to send request: %Req.TransportError{reason: :closed}",
+                        ),
+                    )
+                    "fallback"
+                }
+
+            assertEquals("fallback", answer)
+            assertTrue(prompton.capturedRecords().isEmpty())
         }
     }
 

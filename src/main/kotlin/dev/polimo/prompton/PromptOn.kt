@@ -107,6 +107,13 @@ public class PromptOn internal constructor(
     public val config: PromptOnConfig,
     internal val clock: PromptOnClock,
 ) : AutoCloseable {
+    private companion object {
+        const val REQ_CLOSED = "%Req.TransportError{reason: :closed}"
+        const val FAILED_REQ_CLOSED = "failed to send request: %Req.TransportError{reason: :closed}"
+        const val FAILED_LLM_REQ_CLOSED =
+            "failed to call LLM: failed to send request: %Req.TransportError{reason: :closed}"
+    }
+
     @JvmOverloads
     public constructor(config: PromptOnConfig = PromptOnConfig()) : this(config, PromptOnClock.SYSTEM)
 
@@ -313,7 +320,10 @@ public class PromptOn internal constructor(
         events: List<Map<String, Any?>>,
         environment: String = config.environment,
     ): EventLogResult {
-        val prepared = prepareEvents(events)
+        val prepared = prepareEvents(events).filterNot(::isClosedTransportCompletionEvent)
+        if (prepared.isEmpty()) {
+            return EventLogResult(0, 0, emptyList())
+        }
         if (config.mode == PromptOnMode.TEST) {
             synchronized(capturedEvents) { capturedEvents.addAll(prepared) }
             return EventLogResult(prepared.size.toLong(), 0, emptyList())
@@ -368,6 +378,20 @@ public class PromptOn internal constructor(
             Ptn.toObject(fields)
         }
     }
+
+    private fun isClosedTransportStatusError(record: JsonObject): Boolean {
+        if (record.string("status") != "error") return false
+        val error = record["error"] as? JsonObject ?: return false
+        if (error.string("kind") != "transport") return false
+        return error.string("message") in setOf(REQ_CLOSED, FAILED_REQ_CLOSED)
+    }
+
+    private fun isClosedTransportCompletionEvent(event: JsonObject): Boolean {
+        if (event.string("event_kind") != "completion" || event.string("status") != "error") return false
+        return event.string("completion_output") in setOf(REQ_CLOSED, FAILED_REQ_CLOSED, FAILED_LLM_REQ_CLOSED)
+    }
+
+    private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.content
 
     @Suppress("UNCHECKED_CAST")
     private fun metadataWithSdkVersion(original: Any?): Map<String, Any?> {
@@ -544,6 +568,8 @@ public class PromptOn internal constructor(
         environment: String,
         policy: PayloadPolicy? = null,
     ) {
+        if (isClosedTransportStatusError(record)) return
+
         val effectivePolicy = policy ?: policyFor(useCase)
         val options =
             PayloadOptions(

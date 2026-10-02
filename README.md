@@ -213,6 +213,11 @@ block, applies the payload policy, and returns immediately. Behind it a buffer b
 or bytes, sends at most 200 records and 4 MB per request under `{"logs": [...]}`, one batch per
 environment, and retries the same ids on `429` and `5xx`.
 
+Provider-side `%Req.TransportError{reason: :closed}` monitoring records with `error.kind:
+"transport"` are retry noise from the upstream SDK. PromptOn omits that exact closed transport
+error before payload redaction, buffering, test capture or submission. Other transport, timeout and
+application errors are still logged.
+
 | Field | Notes |
 |---|---|
 | `id` | UUIDv7, generated before the provider call; the idempotency key |
@@ -278,4 +283,4 @@ PTN_HOST=http://localhost:4000 PTN_API_KEY=ptn_sdkfixture_… ./gradlew test
 
 Schema 7 prompt versions may include a `tools` block with OpenAI-compatible function tool definitions plus optional `tool_choice` and `parallel_tool_calls`. The SDK merges those into the provider params it returns and strips authoring-only `output_schema` / `output_examples` before the provider request body is built. The SDK never calls tools itself.
 
-Use `logEvents` to submit observed tool attempts and completion events to the same monitoring endpoint when your application has executed or rejected tool calls. Events require `trace_id`, `event_kind`, and `status`; the SDK fills `event_id`, `observed_at`, SDK identity, and `metadata.sdk.version` when they are absent.
+Use `logEvents` to submit observed tool attempts and completion events to the same monitoring endpoint when your application has executed or rejected tool calls. Events require `trace_id`, `event_kind`, and `status`; the SDK fills `event_id`, `observed_at`, SDK identity, and `metadata.sdk.version` when they are absent. Completion events whose `completion_output` is exactly the closed Req transport error are omitted after validation.
