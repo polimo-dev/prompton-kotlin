@@ -275,7 +275,7 @@ PTN_HOST=http://localhost:4000 PTN_API_KEY=ptn_sdkfixture_… ./gradlew test
 
 ## Reference
 
-- [Runtime API](https://docs.prompton.ai/api) — `GET /prompts/{key}`, `POST /prompts/{key}/render`,
+- [API reference](https://docs.prompton.ai/api) — `GET /prompts/{key}`, `POST /prompts/{key}/render`,
   `POST /logs`
 - [Agent reference](https://docs.prompton.ai/agent) — the whole contract on one page
 

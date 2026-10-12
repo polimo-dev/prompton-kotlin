@@ -34,7 +34,7 @@ Patch release aligning native tool prompts and monitoring events with the verifi
 
 ## 0.4.1
 
-Patch release correcting the SDK wire contract to the current PromptOn runtime API.
+Patch release correcting the SDK wire contract to the current PromptOn API.
 
 - Fetch prompt documents from `GET /api/v1/prompts` and render through `POST /api/v1/prompts/{key}/render`.
 - Decode canonical prompt documents with `prompts` and `template_pins`, and exercise `conformance/prompt.json` in the resolver tests.
@@ -42,7 +42,7 @@ Patch release correcting the SDK wire contract to the current PromptOn runtime A
 
 ## 0.2.0
 
-Breaking vocabulary rename for the clean PromptOn runtime API.
+Breaking vocabulary rename for the clean PromptOn API.
 
 - Replaced the public call-site API with `PromptOn.useCase(key)` returning `UseCase`.
 - Added `UseCase.messages(vars, prompt = ...)` for chat prompts and `UseCase.text(vars, prompt = ...)`
