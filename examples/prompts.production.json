@@ -1,43 +1,53 @@
 {
+  "schema_version": 8,
+  "project": "sdkfixture",
+  "environment": "production",
+  "prompts": {
+    "greeting": {
+      "kind": "chat",
+      "input_schema": [
+        {
+          "name": "name",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "default_params": {
+        "max_tokens": 256
+      },
+      "payload_policy": {
+        "encrypt": true,
+        "max_bytes": 262144,
+        "mode": "full",
+        "retention_days": 30,
+        "sample_rate": 1.0
+      }
+    }
+  },
   "deployments": {
     "greeting": {
-      "id": "01a069cb-0814-77f3-a866-5433348ac431",
-      "model_id": "01a069cb-07c2-7e11-9011-85af7e778f96",
+      "revision": "v2026.10.14-1",
+      "provider": "openrouter",
+      "model": "openai/gpt-4o-mini",
+      "prompt_version": 1,
       "params": {
         "temperature": 0.2
       },
-      "template_pins": {
-        "default": "01a069cb-07f1-7c90-b3a6-cdf8d2d7ed48"
-      },
-      "provider_options": {},
-      "revision": "v2026.09.30-1"
-    }
-  },
-  "environment": "production",
-  "models": {
-    "01a069cb-07c2-7e11-9011-85af7e778f96": {
-      "capabilities": [
-        "tools",
-        "streaming"
-      ],
-      "display_name": "GPT-4o mini",
-      "id": "01a069cb-07c2-7e11-9011-85af7e778f96",
-      "metadata": {},
-      "model_id": "openai/gpt-4o-mini",
-      "provider": "openrouter",
       "provider_options": {
         "only": [
           "OpenAI"
         ]
       },
-      "status": "active"
+      "api": "chat_completions",
+      "request_path": "/api/v1/chat/completions"
     }
   },
-  "project": "sdkfixture",
   "prompt_versions": {
-    "01a069cb-07f1-7c90-b3a6-cdf8d2d7ed48": {
+    "greeting@1": {
+      "prompt": "greeting",
+      "number": 1,
+      "kind": "chat",
       "engine": "liquid",
-      "id": "01a069cb-07f1-7c90-b3a6-cdf8d2d7ed48",
       "messages": [
         {
           "content": "You are a friendly greeter. Answer in one short line.",
@@ -48,33 +58,25 @@
           "role": "user"
         }
       ],
-      "number": 1,
-      "prompt_id": "01a069cb-07d1-7d0a-9b88-742c6cad9a6b",
       "text_template": null
     }
   },
-  "schema_version": 4,
-  "prompts": {
-    "greeting": {
-      "default_params": {
-        "max_tokens": 256
+  "models": {
+    "openrouter:openai/gpt-4o-mini": {
+      "provider": "openrouter",
+      "model": "openai/gpt-4o-mini",
+      "display_name": "GPT-4o mini",
+      "metadata": {},
+      "provider_options": {
+        "only": [
+          "OpenAI"
+        ]
       },
-      "id": "01a069cb-07cb-74c2-87dc-10a06efdc4fb",
-      "input_schema": [
-        {
-          "name": "name",
-          "required": true,
-          "type": "string"
-        }
+      "capabilities": [
+        "tools",
+        "streaming"
       ],
-      "kind": "chat",
-      "payload_policy": {
-        "encrypt": true,
-        "max_bytes": 262144,
-        "mode": "full",
-        "retention_days": 30,
-        "sample_rate": 1.0
-      }
+      "status": "active"
     }
   }
 }

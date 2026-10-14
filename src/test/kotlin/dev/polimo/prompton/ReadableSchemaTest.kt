@@ -87,6 +87,124 @@ class ReadableSchemaTest {
     }
 
     @Test
+    fun `schema 8 rejects prompt version keys that do not match embedded prompt and number`() {
+        assertFailsWith<PromptOnException> {
+            UseCaseDocument.parse(
+                """
+                {"schema_version": 8, "project": "p", "environment": "production",
+                 "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
+                 "deployments": {"greeting": {"revision": "v2026.10.14-1", "provider": "openrouter",
+                                              "model": "m", "prompt_version": 2,
+                                              "params": {}, "provider_options": {}}},
+                 "prompt_versions": {"greeting@2": {"prompt": "other", "number": 2,
+                                                       "kind": "chat", "engine": "liquid",
+                                                       "messages": [{"role": "user", "content": "Hi"}]}},
+                 "models": {"openrouter:m": {"provider": "openrouter", "model": "m",
+                                               "metadata": {}, "provider_options": {},
+                                               "capabilities": [], "status": "active"}}}
+                """.trimIndent(),
+            )
+        }
+    }
+
+    @Test
+    fun `schema 8 rejects model keys that do not match embedded provider and model`() {
+        assertFailsWith<PromptOnException> {
+            UseCaseDocument.parse(
+                """
+                {"schema_version": 8, "project": "p", "environment": "production",
+                 "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
+                 "deployments": {"greeting": {"revision": "v2026.10.14-1", "provider": "openrouter",
+                                              "model": "m", "prompt_version": 2,
+                                              "params": {}, "provider_options": {}}},
+                 "prompt_versions": {"greeting@2": {"prompt": "greeting", "number": 2,
+                                                       "kind": "chat", "engine": "liquid",
+                                                       "messages": [{"role": "user", "content": "Hi"}]}},
+                 "models": {"openrouter:m": {"provider": "other", "model": "m",
+                                               "metadata": {}, "provider_options": {},
+                                               "capabilities": [], "status": "active"}}}
+                """.trimIndent(),
+            )
+        }
+    }
+
+    @Test
+    fun `schema 8 preserves model names containing colons`() {
+        val document =
+            UseCaseDocument.parse(
+                """
+                {"schema_version": 8, "project": "p", "environment": "production",
+                 "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
+                 "deployments": {"greeting": {"revision": "v2026.10.14-1", "provider": "openrouter",
+                                              "model": "vendor:model:with:colon", "prompt_version": 2,
+                                              "params": {}, "provider_options": {}}},
+                 "prompt_versions": {"greeting@2": {"prompt": "greeting", "number": 2,
+                                                       "kind": "chat", "engine": "liquid",
+                                                       "messages": [{"role": "user", "content": "Hi"}]}},
+                 "models": {"openrouter:vendor:model:with:colon": {"provider": "openrouter",
+                                                                      "model": "vendor:model:with:colon",
+                                                                      "metadata": {}, "provider_options": {},
+                                                                      "capabilities": [], "status": "active"}}}
+                """.trimIndent(),
+            )
+
+        assertEquals("vendor:model:with:colon", Resolver.resolve(document, "greeting").model)
+    }
+
+    @Test
+    fun `schema 8 rejects invalid deployment prompt version values`() {
+        val invalidFragments =
+            listOf(
+                "",
+                ", \"prompt_version\": true",
+                ", \"prompt_version\": 2.5",
+                ", \"prompt_version\": \"2\"",
+                ", \"prompt_version\": 0",
+                ", \"prompt_version\": -1",
+            )
+        for (fragment in invalidFragments) {
+            assertFailsWith<PromptOnException> {
+                UseCaseDocument.parse(
+                    """
+                    {"schema_version": 8, "project": "p", "environment": "production",
+                     "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
+                     "deployments": {"greeting": {"revision": "v2026.10.14-1", "provider": "openrouter",
+                                                  "model": "m"$fragment,
+                                                  "params": {}, "provider_options": {}}},
+                     "prompt_versions": {"greeting@2": {"prompt": "greeting", "number": 2,
+                                                           "kind": "chat", "engine": "liquid",
+                                                           "messages": [{"role": "user", "content": "Hi"}]}},
+                     "models": {"openrouter:m": {"provider": "openrouter", "model": "m",
+                                                   "metadata": {}, "provider_options": {},
+                                                   "capabilities": [], "status": "active"}}}
+                    """.trimIndent(),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `schema 8 does not accept legacy deployment aliases`() {
+        assertFailsWith<PromptOnException> {
+            UseCaseDocument.parse(
+                """
+                {"schema_version": 8, "project": "p", "environment": "production",
+                 "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
+                 "deployments": {"greeting": {"revision": "v2026.10.14-1", "model_id": "openrouter:m",
+                                              "template_pins": {"default": "greeting@2"},
+                                              "params": {}, "provider_options": {}}},
+                 "prompt_versions": {"greeting@2": {"prompt": "greeting", "number": 2,
+                                                       "kind": "chat", "engine": "liquid",
+                                                       "messages": [{"role": "user", "content": "Hi"}]}},
+                 "models": {"openrouter:m": {"provider": "openrouter", "model": "m",
+                                               "metadata": {}, "provider_options": {},
+                                               "capabilities": [], "status": "active"}}}
+                """.trimIndent(),
+            )
+        }
+    }
+
+    @Test
     fun `schema 9 is still unsupported until the contract changes again`() {
         val error =
             assertFailsWith<UnsupportedSchemaVersionException> {

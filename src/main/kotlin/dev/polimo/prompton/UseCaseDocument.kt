@@ -87,8 +87,11 @@ public class UseCaseDocument internal constructor(
                 Ptn
                     .asObject(root["models"])
                     ?.entries
-                    ?.mapNotNull { (id, value) -> Ptn.asObject(value)?.let { id to decodeModel(id, it) } }
-                    ?.toMap()
+                    ?.mapNotNull { (id, value) ->
+                        Ptn.asObject(value)?.let { model ->
+                            id to decodeModel(id, model, schemaVersion)
+                        }
+                    }?.toMap()
                     .orEmpty()
 
             return UseCaseDocument(
@@ -165,7 +168,10 @@ public class UseCaseDocument internal constructor(
                 revision = revisionOf(raw?.get("revision")),
                 modelId =
                     if (schemaVersion >= 8) {
-                        readableModelKey(Ptn.asString(raw?.get("provider")), Ptn.asString(raw?.get("model")))
+                        readableModelKey(
+                            requiredString(raw, "provider", "deployment provider"),
+                            requiredString(raw, "model", "deployment model"),
+                        )
                     } else {
                         Ptn.asString(raw?.get("model_id"))
                     },
@@ -175,8 +181,8 @@ public class UseCaseDocument internal constructor(
                 providerOptions = nativeMap(raw?.get("provider_options")),
                 promptPins =
                     if (schemaVersion >= 8) {
-                        val number = Ptn.asInt(raw?.get("prompt_version"))
-                        if (number != null && number > 0) mapOf("default" to "$key@$number") else emptyMap()
+                        val number = strictPositiveInt(raw?.get("prompt_version"), "deployment prompt_version")
+                        mapOf("default" to "$key@$number")
                     } else {
                         Ptn
                             .asObject(raw?.get("template_pins"))
@@ -197,11 +203,24 @@ public class UseCaseDocument internal constructor(
             id: String,
             raw: JsonObject,
             schemaVersion: Int,
-        ): PromptVersion =
-            PromptVersion(
+        ): PromptVersion {
+            val promptId: String?
+            val number: Int?
+            if (schemaVersion >= 8) {
+                promptId = requiredString(raw, "prompt", "prompt version prompt")
+                number = strictPositiveInt(raw["number"], "prompt version number")
+                val expectedId = "$promptId@$number"
+                if (id != expectedId) {
+                    throw PromptOnException("prompt version key $id must match embedded prompt and number $expectedId")
+                }
+            } else {
+                promptId = Ptn.asString(raw["prompt_id"])
+                number = Ptn.asInt(raw["number"])
+            }
+            return PromptVersion(
                 id = if (schemaVersion >= 8) id else Ptn.asString(raw["id"]) ?: id,
-                promptId = if (schemaVersion >= 8) Ptn.asString(raw["prompt"]) else Ptn.asString(raw["prompt_id"]),
-                number = Ptn.asInt(raw["number"]),
+                promptId = promptId,
+                number = number,
                 kind = if (schemaVersion >= 6) UseCaseKind.fromWireOrNull(Ptn.asString(raw["kind"])) else null,
                 engine = TemplateEngine.fromWire(Ptn.asString(raw["engine"])),
                 messages =
@@ -235,21 +254,64 @@ public class UseCaseDocument internal constructor(
                 tools = nativeMap(raw["tools"]),
                 textTemplate = Ptn.asString(raw["text_template"]),
             )
+        }
 
         private fun decodeModel(
             id: String,
             raw: JsonObject,
-        ): ModelEntry =
-            ModelEntry(
-                id = Ptn.asString(raw["id"]) ?: id,
-                provider = Ptn.asString(raw["provider"]),
-                modelId = Ptn.asString(raw["model"]) ?: Ptn.asString(raw["model_id"]),
+            schemaVersion: Int,
+        ): ModelEntry {
+            val provider: String?
+            val modelId: String?
+            val entryId: String
+            if (schemaVersion >= 8) {
+                provider = requiredString(raw, "provider", "model provider")
+                modelId = requiredString(raw, "model", "model name")
+                val expectedId = "$provider:$modelId"
+                if (id != expectedId) {
+                    throw PromptOnException("model key $id must match embedded provider and model $expectedId")
+                }
+                entryId = id
+            } else {
+                provider = Ptn.asString(raw["provider"])
+                modelId = Ptn.asString(raw["model"]) ?: Ptn.asString(raw["model_id"])
+                entryId = Ptn.asString(raw["id"]) ?: id
+            }
+            return ModelEntry(
+                id = entryId,
+                provider = provider,
+                modelId = modelId,
                 displayName = Ptn.asString(raw["display_name"]),
                 metadata = nativeMap(raw["metadata"]),
                 providerOptions = nativeMap(raw["provider_options"]),
                 capabilities = Ptn.asArray(raw["capabilities"])?.mapNotNull { Ptn.asString(it) }.orEmpty(),
                 status = Ptn.asString(raw["status"]),
             )
+        }
+
+        private fun requiredString(
+            raw: JsonObject?,
+            key: String,
+            label: String,
+        ): String = Ptn.asString(raw?.get(key)) ?: throw PromptOnException("$label is required")
+
+        private fun strictPositiveInt(
+            value: JsonElement?,
+            label: String,
+        ): Int {
+            if (value is JsonPrimitive && !value.isString) {
+                val text = value.content
+                if (INTEGER_PATTERN.matches(text)) {
+                    val number = text.toLongOrNull()
+                    if (number != null && number > 0 && number <= Int.MAX_VALUE) {
+                        return number.toInt()
+                    }
+                }
+            }
+            throw PromptOnException("$label must be a positive JSON integer")
+        }
+
+        private val INTEGER_PATTERN = Regex("-?(0|[1-9][0-9]*)")
 
         private fun nativeMap(element: JsonElement?): Map<String, Any?> = Ptn.toNativeMap(element)
 
