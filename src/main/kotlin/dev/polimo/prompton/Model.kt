@@ -115,7 +115,7 @@ public data class Deployment(
     val promptPins: Map<String, String>,
 )
 
-/** An immutable prompt version. */
+/** An immutable prompt version. The [id] is a legacy UUID or a schema v8 readable lookup key. */
 public data class PromptVersion(
     val id: String,
     val promptId: String?,
@@ -162,7 +162,7 @@ public data class PreparedRequestOptions
         val user: String? = null,
     )
 
-/** A model catalog entry. */
+/** A model catalog entry. The [id] is a legacy UUID or a schema v8 readable lookup key. */
 public data class ModelEntry(
     val id: String,
     val provider: String?,

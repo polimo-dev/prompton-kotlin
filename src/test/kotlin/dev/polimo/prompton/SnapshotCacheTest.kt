@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -173,6 +174,30 @@ class SnapshotCacheTest {
     }
 
     @Test
+    fun `schema 8 bundle loads with readable refs and no public ids`() {
+        val bundle = tempDir.resolve("prompts.production.json")
+        SnapshotFilesForTest.write(bundle, readableSchemaEight())
+        PromptOn(
+            PromptOnConfig(
+                host = "https://prompton.test",
+                environment = "production",
+                project = "fixture",
+                diskCacheEnabled = false,
+                bundlePath = bundle,
+            ),
+        ).use { prompton ->
+            val pin = prompton.useCase("greeting")
+            assertEquals("openai/gpt-4o-mini", pin.model)
+            assertEquals("openrouter", pin.provider)
+            assertEquals(2, pin.promptVersionNumber)
+            assertNull(pin.deploymentId)
+            assertNull(pin.modelId)
+            assertNull(pin.promptVersionId)
+            assertEquals("Hi Ada", pin.messages(mapOf("name" to "Ada")).single().content)
+        }
+    }
+
+    @Test
     fun `cold failure without fallback is explicit and gated`() {
         val transport = StubTransport { HttpResponse(503, emptyMap(), "") }
         PromptOn(config(transport), FakeClock()).use { prompton ->
@@ -317,6 +342,27 @@ class SnapshotCacheTest {
         SnapshotFilesForTest.write(path, SnapshotFixtures.useCaseDocument())
         return path
     }
+
+    private fun readableSchemaEight(): String =
+        """
+        {"schema_version": 8, "project": "fixture", "environment": "production",
+         "prompts": {"greeting": {"kind": "chat",
+                                  "input_schema": [{"name":"name","type":"string","required":true}],
+                                  "default_params": {"max_tokens": 512}}},
+         "deployments": {"greeting": {"revision": "v2026.10.14-1", "provider": "openrouter",
+                                      "model": "openai/gpt-4o-mini", "prompt_version": 2,
+                                      "params": {"temperature": 0.2}, "provider_options": {},
+                                      "api": "chat_completions",
+                                      "request_path": "/api/v1/chat/completions"}},
+         "prompt_versions": {"greeting@2": {"prompt": "greeting", "number": 2, "kind": "chat",
+                                            "engine": "liquid",
+                                            "messages": [{"role": "user", "content": "Hi {{ name }}"}]}},
+         "models": {"openrouter:openai/gpt-4o-mini": {"provider": "openrouter",
+                                                      "model": "openai/gpt-4o-mini",
+                                                      "display_name": "GPT-4o mini",
+                                                      "metadata": {}, "provider_options": {},
+                                                      "capabilities": [], "status": "active"}}}
+        """.trimIndent()
 
     private fun runConcurrent(
         threads: Int,

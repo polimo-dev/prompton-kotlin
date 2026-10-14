@@ -16,7 +16,7 @@ public class UnsupportedSchemaVersionException(
 /**
  * A decoded PromptOn prompt document: either a bundle or one demand-fetched prompt key.
  *
- * Decoding is lenient about additions to schema versions 4 through 7, and strict about the
+ * Decoding is lenient about additions to schema versions 4 through 8, and strict about the
  * schema itself.
  */
 public class UseCaseDocument internal constructor(
@@ -43,7 +43,7 @@ public class UseCaseDocument internal constructor(
     public fun toJson(): String = source
 
     public companion object {
-        public const val SCHEMA_VERSION: Int = 7
+        public const val SCHEMA_VERSION: Int = 8
 
         /** Decodes a PromptOn prompt document body. */
         public fun parse(json: String): UseCaseDocument = decode(Ptn.parseObject(json), json)
@@ -160,21 +160,31 @@ public class UseCaseDocument internal constructor(
             schemaVersion: Int,
         ): Deployment =
             Deployment(
-                id = Ptn.asString(raw?.get("id")),
+                id = if (schemaVersion >= 8) null else Ptn.asString(raw?.get("id")),
                 useCaseKey = Ptn.asString(raw?.get("use_case_key")) ?: key,
                 revision = revisionOf(raw?.get("revision")),
-                modelId = Ptn.asString(raw?.get("model_id")),
+                modelId =
+                    if (schemaVersion >= 8) {
+                        readableModelKey(Ptn.asString(raw?.get("provider")), Ptn.asString(raw?.get("model")))
+                    } else {
+                        Ptn.asString(raw?.get("model_id"))
+                    },
                 api = if (schemaVersion >= 6 && raw != null) Ptn.asString(raw["api"]) else null,
                 requestPath = if (schemaVersion >= 6 && raw != null) Ptn.asString(raw["request_path"]) else null,
                 params = nativeMap(raw?.get("params")),
                 providerOptions = nativeMap(raw?.get("provider_options")),
                 promptPins =
-                    Ptn
-                        .asObject(raw?.get("template_pins"))
-                        ?.entries
-                        ?.mapNotNull { (name, value) -> Ptn.asString(value)?.let { name to it } }
-                        ?.toMap()
-                        .orEmpty(),
+                    if (schemaVersion >= 8) {
+                        val number = Ptn.asInt(raw?.get("prompt_version"))
+                        if (number != null && number > 0) mapOf("default" to "$key@$number") else emptyMap()
+                    } else {
+                        Ptn
+                            .asObject(raw?.get("template_pins"))
+                            ?.entries
+                            ?.mapNotNull { (name, value) -> Ptn.asString(value)?.let { name to it } }
+                            ?.toMap()
+                            .orEmpty()
+                    },
             )
 
         private fun revisionOf(value: JsonElement?): String? {
@@ -189,8 +199,8 @@ public class UseCaseDocument internal constructor(
             schemaVersion: Int,
         ): PromptVersion =
             PromptVersion(
-                id = Ptn.asString(raw["id"]) ?: id,
-                promptId = Ptn.asString(raw["prompt_id"]),
+                id = if (schemaVersion >= 8) id else Ptn.asString(raw["id"]) ?: id,
+                promptId = if (schemaVersion >= 8) Ptn.asString(raw["prompt"]) else Ptn.asString(raw["prompt_id"]),
                 number = Ptn.asInt(raw["number"]),
                 kind = if (schemaVersion >= 6) UseCaseKind.fromWireOrNull(Ptn.asString(raw["kind"])) else null,
                 engine = TemplateEngine.fromWire(Ptn.asString(raw["engine"])),
@@ -233,7 +243,7 @@ public class UseCaseDocument internal constructor(
             ModelEntry(
                 id = Ptn.asString(raw["id"]) ?: id,
                 provider = Ptn.asString(raw["provider"]),
-                modelId = Ptn.asString(raw["model_id"]),
+                modelId = Ptn.asString(raw["model"]) ?: Ptn.asString(raw["model_id"]),
                 displayName = Ptn.asString(raw["display_name"]),
                 metadata = nativeMap(raw["metadata"]),
                 providerOptions = nativeMap(raw["provider_options"]),
@@ -242,5 +252,11 @@ public class UseCaseDocument internal constructor(
             )
 
         private fun nativeMap(element: JsonElement?): Map<String, Any?> = Ptn.toNativeMap(element)
+
+        private fun readableModelKey(
+            provider: String?,
+            model: String?,
+        ): String? =
+            if (provider == null || model == null) null else "$provider:$model"
     }
 }

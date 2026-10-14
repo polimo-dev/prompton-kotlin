@@ -110,6 +110,40 @@ class UseCasePromptClientTest {
     }
 
     @Test
+    fun `remote rendering accepts readable responses without resource ids`() {
+        val response =
+            AtomicReference(
+                HttpResponse(
+                    200,
+                    emptyMap(),
+                    """
+                    {"key":"greeting","kind":"chat",
+                     "deployment":{"revision": "v2026.10.14-1"},
+                     "template":"default","template_names":["default"],
+                     "source":"remote",
+                     "model":"openai/gpt-4o-mini","provider":"openrouter",
+                     "api":"chat_completions","request_path":"/api/v1/chat/completions",
+                     "params":{"temperature":0.2},"provider_options":{"allow_fallbacks":false},
+                     "prompt_version":{"number":2,"kind":"chat"},
+                     "messages":[{"role":"user","content":"Say hello"}],
+                     "warnings":[],"etag":"sha256-v8"}
+                    """.trimIndent(),
+                ),
+            )
+        val transport = resolveTransport(response)
+        PromptOn(config(transport), FakeClock()).use { prompton ->
+            val useCase = prompton.useCaseRemoteBlocking("greeting")
+            assertNull(useCase.deploymentId)
+            assertNull(useCase.modelId)
+            assertNull(useCase.promptVersionId)
+            assertEquals(2, useCase.promptVersionNumber)
+            assertEquals("openai/gpt-4o-mini", useCase.model)
+            assertEquals("openrouter", useCase.provider)
+            assertEquals("Say hello", useCase.messages().single().content)
+        }
+    }
+
+    @Test
     fun `each prompt prompt and environment is cached separately`() {
         val response = AtomicReference(HttpResponse(200, emptyMap(), rawAnswer))
         val transport = resolveTransport(response)

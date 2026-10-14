@@ -142,7 +142,7 @@ class SnapshotTiersTest {
     }
 
     @Test
-    fun `schema version must be exactly v4`() {
+    fun `schema version must be supported integer`() {
         val bundle = tempDir.resolve("bundle.json")
         Files.writeString(
             bundle,
@@ -159,7 +159,7 @@ class SnapshotTiersTest {
         }
         assertFailsWith<UnsupportedSchemaVersionException> {
             UseCaseDocument.parse(
-                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 4", "\"schema_version\": 8"),
+                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 4", "\"schema_version\": 9"),
             )
         }
         assertFailsWith<PromptOnException> {

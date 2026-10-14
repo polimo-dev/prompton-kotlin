@@ -2,6 +2,16 @@
 
 All notable changes to the PromptOn Kotlin SDK.
 
+## 0.7.0
+
+- Read schema v8 prompt documents whose public resource references are readable keys instead of
+  UUIDs: deployments reference `provider` + `model` and `prompt_version`, prompt versions are keyed
+  as `prompt@number`, and models are keyed as `provider:model`.
+- Schema v8 local config and remote render results keep the deprecated compatibility id properties
+  `deploymentId`, `modelId` and `promptVersionId` null while preserving readable
+  `deploymentRevision`, `provider`, `model` and `promptVersionNumber`.
+- Legacy schema v4-v7 cache and bundle documents still decode unchanged.
+
 ## 0.6.1
 
 - Add native Decision prompt support: schema v6+ prompt-version `kind: "decision"`, local Decision rendering, provider request preparation, remote render/cache preservation and monitoring-log `input.decision`.
