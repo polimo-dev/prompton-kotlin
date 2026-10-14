@@ -71,15 +71,16 @@ public class UseCaseDocument internal constructor(
                 Ptn
                     .asObject(root["deployments"])
                     ?.entries
-                    ?.associate { (key, value) -> key to decodeDeployment(key, Ptn.asObject(value)) }
+                    ?.associate { (key, value) -> key to decodeDeployment(key, Ptn.asObject(value), schemaVersion) }
                     .orEmpty()
 
             val promptVersions =
                 Ptn
                     .asObject(root["prompt_versions"])
                     ?.entries
-                    ?.mapNotNull { (id, value) -> Ptn.asObject(value)?.let { id to decodePromptVersion(id, it) } }
-                    ?.toMap()
+                    ?.mapNotNull { (id, value) ->
+                        Ptn.asObject(value)?.let { id to decodePromptVersion(id, it, schemaVersion) }
+                    }?.toMap()
                     .orEmpty()
 
             val models =
@@ -156,12 +157,15 @@ public class UseCaseDocument internal constructor(
         private fun decodeDeployment(
             key: String,
             raw: JsonObject?,
+            schemaVersion: Int,
         ): Deployment =
             Deployment(
                 id = Ptn.asString(raw?.get("id")),
                 useCaseKey = Ptn.asString(raw?.get("use_case_key")) ?: key,
                 revision = revisionOf(raw?.get("revision")),
                 modelId = Ptn.asString(raw?.get("model_id")),
+                api = if (schemaVersion >= 6 && raw != null) Ptn.asString(raw["api"]) else null,
+                requestPath = if (schemaVersion >= 6 && raw != null) Ptn.asString(raw["request_path"]) else null,
                 params = nativeMap(raw?.get("params")),
                 providerOptions = nativeMap(raw?.get("provider_options")),
                 promptPins =
@@ -182,11 +186,13 @@ public class UseCaseDocument internal constructor(
         private fun decodePromptVersion(
             id: String,
             raw: JsonObject,
+            schemaVersion: Int,
         ): PromptVersion =
             PromptVersion(
                 id = Ptn.asString(raw["id"]) ?: id,
                 promptId = Ptn.asString(raw["prompt_id"]),
                 number = Ptn.asInt(raw["number"]),
+                kind = if (schemaVersion >= 6) UseCaseKind.fromWireOrNull(Ptn.asString(raw["kind"])) else null,
                 engine = TemplateEngine.fromWire(Ptn.asString(raw["engine"])),
                 messages =
                     Ptn.asArray(raw["messages"])?.mapNotNull { element ->
@@ -207,6 +213,13 @@ public class UseCaseDocument internal constructor(
                             toolCalls = calls,
                             hasToolCalls = message.containsKey("tool_calls"),
                             extra = native - setOf("role", "type", "content", "name", "tool_call_id", "tool_calls"),
+                        )
+                    },
+                decision =
+                    Ptn.asObject(raw["decision"])?.let { decision ->
+                        DecisionTemplate(
+                            state = Decisions.freeze(Ptn.toNative(decision["state"])),
+                            questions = Decisions.freezeMap(nativeMap(decision["questions"])),
                         )
                     },
                 tools = nativeMap(raw["tools"]),

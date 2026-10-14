@@ -85,6 +85,7 @@ public data class LogInput
         val variables: Map<String, Any?>? = null,
         val messages: List<PromptMessage>? = null,
         val text: String? = null,
+        val decision: RenderedDecision? = null,
         val tools: List<Any?>? = null,
         val toolChoice: Any? = null,
         val parallelToolCalls: Boolean? = null,
@@ -93,6 +94,7 @@ public data class LogInput
             variables == null &&
                 messages == null &&
                 text == null &&
+                decision == null &&
                 tools == null &&
                 toolChoice == null &&
                 parallelToolCalls == null
@@ -207,6 +209,7 @@ public data class LogRecord
                 fields["messages"] = JsonArray(messages.map { messageJson(it) })
             }
             input.text?.let { fields["text"] = JsonPrimitive(it) }
+            input.decision?.let { fields["decision"] = Ptn.toObject(it.asMap()) }
             input.tools?.let { fields["tools"] = JsonArray(it.map { tool -> Ptn.toElement(tool) }) }
             input.toolChoice?.let { fields["tool_choice"] = Ptn.toElement(it) }
             input.parallelToolCalls?.let { fields["parallel_tool_calls"] = JsonPrimitive(it) }
@@ -309,6 +312,44 @@ public data class Result
                     upstreamProvider = "anthropic",
                 )
 
+            @JvmStatic
+            public fun fromDecisions(answer: Any?): Result {
+                val answers = nativeMap(read(answer, "answers")).orEmpty()
+                val usage = nativeMap(read(answer, "usage")).orEmpty()
+                val model = read(answer, "model") as? String
+                if (answers.isEmpty() ||
+                    model.isNullOrBlank() ||
+                    !validDecisionAnswers(answers) ||
+                    !validDecisionUsage(usage)
+                ) {
+                    throw PromptOnException("invalid Decisions response")
+                }
+                val isByok = read(answer, "usage.is_byok") == true
+                val provider = read(answer, "provider") as? String
+                val cost =
+                    if (isByok) {
+                        firstDouble(answer, "usage.cost_details.upstream_inference_cost", "usage.cost")
+                    } else {
+                        firstDouble(answer, "usage.cost")
+                    }
+                return Result(
+                    content = Ptn.canonicalJson(Ptn.toObject(answers)),
+                    finishReason = "stop",
+                    stopKind = StopKind.STOP,
+                    usage =
+                        Usage(
+                            inputTokens = (usage["input_tokens"] as Number).toLong(),
+                            outputTokens = (usage["output_tokens"] as Number).toLong(),
+                            costUsd = cost,
+                            costSource = CostSource.PROVIDER,
+                            raw = usage,
+                        ),
+                    modelUsed = model,
+                    upstreamProvider = provider,
+                    isByok = isByok,
+                )
+            }
+
             private fun firstString(
                 value: Any?,
                 vararg paths: String,
@@ -318,6 +359,11 @@ public data class Result
                 value: Any?,
                 vararg paths: String,
             ): Long? = paths.firstNotNullOfOrNull { (read(value, it) as? Number)?.toLong() }
+
+            private fun firstDouble(
+                value: Any?,
+                vararg paths: String,
+            ): Double? = paths.firstNotNullOfOrNull { (read(value, it) as? Number)?.toDouble() }
 
             private fun anthropicContent(answer: Any?): String? {
                 val content = read(answer, "content")
@@ -329,6 +375,37 @@ public data class Result
 
             @Suppress("UNCHECKED_CAST")
             private fun nativeMap(value: Any?): Map<String, Any?>? = value as? Map<String, Any?>
+
+            private fun validDecisionUsage(usage: Map<String, Any?>): Boolean =
+                listOf("input_tokens", "output_tokens").all { key ->
+                    val value = usage[key]
+                    value is Number && value.toDouble().isFinite() && value.toDouble() >= 0.0 &&
+                        value.toDouble() % 1.0 == 0.0
+                }
+
+            private fun validDecisionAnswers(answers: Map<String, Any?>): Boolean =
+                answers.values.all { answer ->
+                    val entry = answer as? Map<*, *> ?: return@all false
+                    val type = entry["type"]
+                    val validValue =
+                        when (type) {
+                            "choice" -> entry["choice"] is String
+                            "score" -> entry["score"] is Number
+                            "noul" -> entry["noul"] is Number
+                            else -> false
+                        }
+                    val confidence = entry["confidence"]
+                    val probabilities = entry["probabilities"]
+                    validValue &&
+                        (confidence == null || confidence is Number) &&
+                        (
+                            probabilities == null ||
+                                (
+                                    probabilities is Map<*, *> &&
+                                        probabilities.values.all { it is Number }
+                                )
+                        )
+                }
 
             private fun read(
                 value: Any?,
@@ -375,6 +452,7 @@ public data class TrackMeta
         /** The final messages, after the app attached its own history. */
         val inputMessages: List<PromptMessage>? = null,
         val inputText: String? = null,
+        val inputDecision: RenderedDecision? = null,
         val endUserRef: String? = null,
         val traceId: String? = null,
         val sequence: Int? = null,

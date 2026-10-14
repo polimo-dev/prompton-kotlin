@@ -19,6 +19,7 @@ public data class PromptMessage
 /** What a prompt asks the provider for. */
 public enum class UseCaseKind {
     CHAT,
+    DECISION,
     TEXT,
     EMBEDDING,
     ;
@@ -26,8 +27,10 @@ public enum class UseCaseKind {
     public val wire: String get() = name.lowercase()
 
     public companion object {
-        public fun fromWire(value: String?): UseCaseKind =
-            entries.firstOrNull { it.wire == value?.trim()?.lowercase() } ?: CHAT
+        public fun fromWire(value: String?): UseCaseKind = fromWireOrNull(value) ?: CHAT
+
+        public fun fromWireOrNull(value: String?): UseCaseKind? =
+            entries.firstOrNull { it.wire == value?.trim()?.lowercase() }
     }
 }
 
@@ -105,6 +108,8 @@ public data class Deployment(
     val useCaseKey: String,
     val revision: String?,
     val modelId: String?,
+    val api: String? = null,
+    val requestPath: String? = null,
     val params: Map<String, Any?>,
     val providerOptions: Map<String, Any?>,
     val promptPins: Map<String, String>,
@@ -115,11 +120,47 @@ public data class PromptVersion(
     val id: String,
     val promptId: String?,
     val number: Int?,
+    val kind: UseCaseKind? = null,
     val engine: TemplateEngine,
     val messages: List<PromptMessage>?,
+    val decision: DecisionTemplate? = null,
     val tools: Map<String, Any?>,
     val textTemplate: String?,
 )
+
+/** A native Decision prompt template. String leaves are rendered with the prompt version engine. */
+public data class DecisionTemplate(
+    val state: Any?,
+    val questions: Map<String, Any?>,
+)
+
+/** A rendered native Decision prompt ready for the Decisions provider API. */
+public data class RenderedDecision(
+    val state: Any?,
+    val questions: Map<String, Any?>,
+) {
+    public fun asMap(): Map<String, Any?> = mapOf("state" to state, "questions" to questions)
+}
+
+/** Provider request prepared by the SDK. The SDK never sends this request. */
+public data class PreparedRequest(
+    val api: String,
+    val method: String,
+    val path: String,
+    val body: Map<String, Any?>,
+)
+
+/** Per-call overrides for [UseCase.request]. */
+public data class PreparedRequestOptions
+    @JvmOverloads
+    constructor(
+        val prompt: String? = null,
+        val params: Map<String, Any?>? = null,
+        val providerOptions: Map<String, Any?>? = null,
+        val sessionId: String? = null,
+        val trace: Map<String, Any?>? = null,
+        val user: String? = null,
+    )
 
 /** A model catalog entry. */
 public data class ModelEntry(

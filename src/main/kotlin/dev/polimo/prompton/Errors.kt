@@ -62,3 +62,8 @@ public class PromptOnApiException(
     message: String,
     public val details: Map<String, Any?> = emptyMap(),
 ) : PromptOnException("PromptOn API error $status${code?.let { " ($it)" } ?: ""}: $message")
+
+/** The SDK could not prepare a provider-native request from the deployed prompt metadata. */
+public class PreparedRequestException(
+    message: String,
+) : PromptOnException(message)

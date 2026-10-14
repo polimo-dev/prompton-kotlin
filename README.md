@@ -14,6 +14,8 @@ last prompt document it received.
 useCase("greeting")        ──▶  UseCase(model, params, provider options, pinned prompt)
 useCase.messages(vars)     ──▶  messages PromptOn manages
 useCase.text(vars)         ──▶  text prompt
+useCase.decision(vars)     ──▶  Decision state/questions
+useCase.request(vars)      ──▶  provider request body for Chat or Decision
 useCase.track(meta) { … }  ──▶  monitoring log, sent in batches
 ```
 
@@ -22,7 +24,11 @@ useCase.track(meta) { … }  ──▶  monitoring log, sent in batches
 
 ## Install
 
-Not published to Maven Central yet. Until it is, depend on the repository:
+Check out the v0.6.1 GitHub source release next to your app, then include it as a Gradle build:
+
+```sh
+git clone --branch v0.6.1 --depth 1 https://github.com/polimo-dev/prompton-kotlin.git
+```
 
 ```kotlin
 // settings.gradle.kts
@@ -32,7 +38,7 @@ includeBuild("../prompton-kotlin")
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.polimo:prompton-sdk:0.6.0")
+    implementation("dev.polimo:prompton-sdk:0.6.1")
 }
 ```
 
@@ -56,6 +62,34 @@ val answer = useCase.trackBlocking(
 
 `track` is the suspending twin of `trackBlocking`; so are `flush`, `useCaseRemote` and
 `promptOnServer`. Close the instance on shutdown (`prompton.close()`) so the log queue drains.
+
+For native Decision prompts, render the Decision payload and prepare the provider request from the
+pinned model, path, state and questions:
+
+```kotlin
+val prompton = PromptOn()
+val useCase = prompton.useCase("sentiment")
+val variables = mapOf("diary" to "The launch went well.")
+
+val decision = useCase.decision(variables)
+val request = useCase.request(
+    variables,
+    PreparedRequestOptions(
+        sessionId = "session-1",
+        user = "user-1",
+        providerOptions = mapOf("only" to listOf("OpenRouter")),
+    ),
+)
+
+useCase.trackBlocking(TrackMeta(variables = variables, inputDecision = decision)) { call ->
+    val raw = myDecisionsClient.post(request.path, request.body)
+    call.result(Result.fromDecisions(raw))
+    raw
+}
+```
+
+`request.method` is `POST`. Decision request params accept only `session_id`, `trace` and `user`;
+OpenRouter routing options go through `providerOptions`.
 
 A runnable version, including a fake provider and a committed bundle, is in
 [`examples/`](examples/src/main/kotlin/dev/polimo/prompton/examples/GreetingExample.kt):
@@ -222,12 +256,12 @@ application errors are still logged.
 |---|---|
 | `id` | UUIDv7, generated before the provider call; the idempotency key |
 | `prompt_key`, `model`, `status`, `started_at` | Required |
-| `kind` | `chat`, `text` or `embedding` |
+| `kind` | `chat`, `decision`, `text` or `embedding` |
 | `deployment_revision`, `template`, `prompt_version_number` | The readable pin evidence that produced the call. Snapshot and response objects still expose internal ids such as `deploymentId`, `promptVersionId` and `modelId` |
 | `source` | `remote`, `disk`, `bundle` or `manual` — where the configuration came from |
 | `provider`, `model_used`, `upstream_provider` | Who actually served it |
 | `params` | The prompt params, with your per-call overrides layered on |
-| `input` | `{variables, messages}` or `{text}` |
+| `input` | `{variables, messages}`, `{decision}` or `{text}` |
 | `output` | `{content, tool_calls}` |
 | `finish_reason`, `stop_kind` | The provider's raw value and PromptOn's normalisation |
 | `error` | `{kind, status, message}` on failures |
@@ -236,8 +270,8 @@ application errors are still logged.
 | `context`, `metadata` | Free-form tags |
 | `sdk` | `{name: "prompton-kotlin", version}` |
 
-`Result.fromOpenAI(answer)` and `Result.fromAnthropic(answer)` extract common content,
-finish-reason, usage-token and model fields from provider responses.
+`Result.fromOpenAI(answer)`, `Result.fromAnthropic(answer)` and `Result.fromDecisions(answer)`
+extract common content, finish-reason, usage-token and model fields from provider responses.
 
 ## Testing your app
 

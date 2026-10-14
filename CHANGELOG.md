@@ -2,6 +2,12 @@
 
 All notable changes to the PromptOn Kotlin SDK.
 
+## 0.6.1
+
+- Add native Decision prompt support: schema v6+ prompt-version `kind: "decision"`, local Decision rendering, provider request preparation, remote render/cache preservation and monitoring-log `input.decision`.
+- Add `UseCase.decision`, `UseCase.request`, `PreparedRequest`, `PreparedRequestOptions`, `RenderedDecision` and `Result.fromDecisions` for typed Decision provider responses and usage.
+- Reject missing or unsupported provider protocol metadata instead of preparing a chat-shaped request for Decision prompts.
+
 ## 0.6.0
 
 - Message slots are no longer expanded by the SDK. A prompt document containing a `type: "slot"`

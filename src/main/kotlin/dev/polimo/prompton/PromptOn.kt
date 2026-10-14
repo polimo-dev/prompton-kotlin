@@ -75,6 +75,8 @@ public data class ServerUseCasePrompt(
     val model: String?,
     val modelId: String?,
     val provider: String?,
+    val api: String?,
+    val requestPath: String?,
     val params: Map<String, Any?>,
     val providerOptions: Map<String, Any?>,
     val providerPreparedRequest: Map<String, Any?> = emptyMap(),
@@ -82,6 +84,7 @@ public data class ServerUseCasePrompt(
     val promptVersionNumber: Int?,
     val messages: List<PromptMessage>?,
     val text: String?,
+    val decision: RenderedDecision?,
     val warnings: List<String>,
     val etag: String?,
 )
@@ -527,6 +530,7 @@ public class PromptOn internal constructor(
                         variables = meta.variables,
                         messages = meta.inputMessages,
                         text = meta.inputText,
+                        decision = meta.inputDecision,
                         tools = Resolver.mergeShallow(useCase.params, meta.params)["tools"] as? List<Any?>,
                         toolChoice = Resolver.mergeShallow(useCase.params, meta.params)["tool_choice"],
                         parallelToolCalls = Resolver.mergeShallow(
@@ -788,6 +792,14 @@ public class PromptOn internal constructor(
         val version = Ptn.asObject(body["prompt_version"])
 
         fun map(key: String): Map<String, Any?> = Ptn.toNativeMap(body[key])
+
+        fun preparedRequest(key: String): Map<String, Any?> {
+            val request = LinkedHashMap(map(key))
+            val method = Ptn.asString(body[key]?.let { Ptn.asObject(it)?.get("method") })
+            if (method != null) request["method"] = method.uppercase()
+            return request
+        }
+
         return ServerUseCasePrompt(
             key = Ptn.asString(body["key"]) ?: "",
             kind = UseCaseKind.fromWire(Ptn.asString(body["kind"])),
@@ -799,9 +811,11 @@ public class PromptOn internal constructor(
             model = Ptn.asString(body["model"]),
             modelId = Ptn.asString(body["model_id"]),
             provider = Ptn.asString(body["provider"]),
+            api = Ptn.asString(body["api"]),
+            requestPath = Ptn.asString(body["request_path"]),
             params = Resolver.mergeTools(map("params"), map("tools")),
             providerOptions = map("provider_options"),
-            providerPreparedRequest = map("request"),
+            providerPreparedRequest = Decisions.freezeMap(preparedRequest("request")),
             promptVersionId = Ptn.asString(version?.get("id")),
             promptVersionNumber = Ptn.asInt(version?.get("number")),
             messages =
@@ -826,6 +840,18 @@ public class PromptOn internal constructor(
                     )
                 },
             text = Ptn.asString(body["text"]),
+            decision =
+                Ptn.asObject(body["decision"])?.let { decision ->
+                    val questions = Ptn.toNativeMap(decision["questions"])
+                    if (questions.isEmpty()) {
+                        null
+                    } else {
+                        RenderedDecision(
+                            state = Ptn.toNative(decision["state"]),
+                            questions = questions,
+                        )
+                    }
+                },
             warnings = Ptn.asArray(body["warnings"])?.mapNotNull { Ptn.asString(it) }.orEmpty(),
             etag = Ptn.asString(body["etag"]),
         )
@@ -852,19 +878,29 @@ public class PromptOn internal constructor(
             model = server.model,
             modelId = server.modelId,
             provider = server.provider,
+            api = server.api,
+            requestPath = server.requestPath,
             params = server.params,
             providerOptions = server.providerOptions,
-            providerPreparedRequest = server.providerPreparedRequest,
+            providerPreparedRequest = Decisions.freezeMap(server.providerPreparedRequest),
             promptVersionId = server.promptVersionId,
             promptVersionNumber = server.promptVersionNumber,
             engine = TemplateEngine.LIQUID,
             messageTemplates = server.messages,
+            decisionTemplate =
+                server.decision?.let {
+                    DecisionTemplate(
+                        state = Decisions.freeze(it.state),
+                        questions = Decisions.freezeMap(it.questions),
+                    )
+                },
             textTemplate = server.text,
             inputSchema = emptyList(),
             payloadPolicy = policyFor(server.key),
             source = server.source ?: UseCaseSource.REMOTE,
             etag = server.etag,
             warnings = server.warnings,
+            pinnedKind = server.kind,
         ).also { it.owner = this }
 }
 
