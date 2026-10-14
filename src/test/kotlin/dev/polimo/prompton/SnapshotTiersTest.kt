@@ -146,7 +146,7 @@ class SnapshotTiersTest {
         val bundle = tempDir.resolve("bundle.json")
         Files.writeString(
             bundle,
-            SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 4", "\"schema_version\": 3"),
+            SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 1", "\"schema_version\": 3"),
         )
 
         PromptOn(config(downTransport, bundle = bundle), FakeClock()).use { prompton ->
@@ -154,32 +154,32 @@ class SnapshotTiersTest {
         }
         assertFailsWith<UnsupportedSchemaVersionException> {
             UseCaseDocument.parse(
-                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 4", "\"schema_version\": 3"),
+                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 1", "\"schema_version\": 3"),
             )
         }
         assertFailsWith<UnsupportedSchemaVersionException> {
             UseCaseDocument.parse(
-                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 4", "\"schema_version\": 10"),
+                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 1", "\"schema_version\": 10"),
             )
         }
         assertFailsWith<PromptOnException> {
             UseCaseDocument.parse(
-                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 4", "\"version\": 4"),
+                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 1", "\"version\": 1"),
             )
         }
         assertFailsWith<PromptOnException> {
             UseCaseDocument.parse(
-                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 4,\n", ""),
+                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 1,\n", ""),
             )
         }
         assertFailsWith<PromptOnException> {
             UseCaseDocument.parse(
-                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 4", "\"schema_version\": \"4\""),
+                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 1", "\"schema_version\": \"1\""),
             )
         }
         assertFailsWith<PromptOnException> {
             UseCaseDocument.parse(
-                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 4", "\"schema_version\": 4.0"),
+                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 1", "\"schema_version\": 1.0"),
             )
         }
     }

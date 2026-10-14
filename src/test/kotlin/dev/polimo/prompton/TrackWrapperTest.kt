@@ -175,56 +175,56 @@ class TrackWrapperTest {
     }
 
     @Test
-    fun `a named prompt's pin is recorded as evidence`() {
+    fun `an explicit default prompt's pin is recorded as evidence`() {
         prompton().use { prompton ->
-            val useCase = prompton.useCase("greeting", prompt = "ko")
+            val useCase = prompton.useCase("greeting", prompt = "default")
             useCase.trackBlocking { call -> call.result(Result(content = "안녕하세요")) }
 
             val record = prompton.capturedRecords().single()
-            assertEquals("ko", field(record, "template"))
-            assertEquals("4", field(record, "prompt_version_number"))
+            assertEquals("default", field(record, "template"))
+            assertEquals("2", field(record, "prompt_version_number"))
             assertFalse(record.containsKey("prompt_version_id"))
         }
     }
 
     @Test
-    fun `a named prompt rendered from the base prompt is recorded as evidence`() {
+    fun `an explicit default prompt rendered from the base prompt is recorded as evidence`() {
         prompton().use { prompton ->
             val useCase = prompton.useCase("greeting")
-            val messages = useCase.messages(mapOf("name" to "Ada"), prompt = "ko")
+            val messages = useCase.messages(mapOf("name" to "Ada"), prompt = "default")
             useCase.trackBlocking(TrackMeta(variables = mapOf("name" to "Ada"), inputMessages = messages)) { call ->
                 call.result(Result(content = "안녕하세요"))
             }
 
             val record = prompton.capturedRecords().single()
-            assertEquals("ko", field(record, "template"))
-            assertEquals("4", field(record, "prompt_version_number"))
+            assertEquals("default", field(record, "template"))
+            assertEquals("2", field(record, "prompt_version_number"))
             assertFalse(record.containsKey("prompt_version_id"))
         }
     }
 
     @Test
-    fun `a named prompt render selection is cleared after one track`() {
+    fun `an explicit default prompt render selection is cleared after one track`() {
         prompton().use { prompton ->
             val useCase = prompton.useCase("greeting")
-            val messages = useCase.messages(mapOf("name" to "Ada"), prompt = "ko")
+            val messages = useCase.messages(mapOf("name" to "Ada"), prompt = "default")
             useCase.trackBlocking(TrackMeta(inputMessages = messages)) { call ->
                 call.result(Result(content = "안녕하세요"))
             }
             useCase.trackBlocking { call -> call.result(Result(content = "Hello again")) }
 
             val records = prompton.capturedRecords()
-            assertEquals("ko", field(records[0], "template"))
+            assertEquals("default", field(records[0], "template"))
             assertEquals("default", field(records[1], "template"))
         }
     }
 
     @Test
-    fun `a failed named prompt render does not leak into the next track`() {
+    fun `a failed default prompt render does not leak into the next track`() {
         prompton().use { prompton ->
             val useCase = prompton.useCase("greeting")
             assertFailsWith<MissingVariableException> {
-                useCase.messages(prompt = "ko")
+                useCase.messages(prompt = "default")
             }
             useCase.trackBlocking { call -> call.result(Result(content = "Hello")) }
 

@@ -24,10 +24,10 @@ useCase.track(meta) { … }  ──▶  monitoring log, sent in batches
 
 ## Install
 
-Check out the v0.7.1 GitHub source release next to your app, then include it as a Gradle build:
+Check out the v0.8.0 GitHub source release next to your app, then include it as a Gradle build:
 
 ```sh
-git clone --branch v0.7.1 --depth 1 https://github.com/polimo-dev/prompton-kotlin.git
+git clone --branch v0.8.0 --depth 1 https://github.com/polimo-dev/prompton-kotlin.git
 ```
 
 ```kotlin
@@ -38,7 +38,7 @@ includeBuild("../prompton-kotlin")
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.polimo:prompton-sdk:0.7.1")
+    implementation("dev.polimo:prompton-sdk:0.8.0")
 }
 ```
 
@@ -201,6 +201,15 @@ unpinned prompt name is a bug in the deployment or the call. Fail that call loud
 
 ## Prompt templates
 
+`useCase.variables` exposes the prompt's `VariableDefinition` entries: `name`, `type`, `required`,
+`description`, and `example`. The `variables` map supplied to rendering and logging still holds
+per-call values.
+
+Only schema version 1 is accepted, as a singular detail response or a keyed offline bundle.
+`GET /api/v1/prompts` lists prompt keys and kinds; fetch `GET /api/v1/prompts/{key}` for configuration.
+The index array cannot be loaded as configuration. `exportUseCaseDocument` writes the most recently
+served document and its original ETag metadata without fetching or combining other prompts.
+
 The pinned prompt is a Liquid subset, rendered locally:
 
 - Output: `{{ name }}`, `{{ user.name }}`, `{{ items[0] }}`. No HTML escaping.
@@ -257,7 +266,7 @@ application errors are still logged.
 | `id` | UUIDv7, generated before the provider call; the idempotency key |
 | `prompt_key`, `model`, `status`, `started_at` | Required |
 | `kind` | `chat`, `decision`, `text` or `embedding` |
-| `deployment_revision`, `template`, `prompt_version_number` | The readable pin evidence that produced the call. In readable schemas, deprecated id properties such as `deploymentId`, `promptVersionId` and `modelId` remain null |
+| `deployment_revision`, `template`, `prompt_version_number` | The readable pin evidence that produced the call. In schema 1, deprecated id properties such as `deploymentId`, `promptVersionId` and `modelId` remain null |
 | `source` | `remote`, `disk`, `bundle` or `manual` — where the configuration came from |
 | `provider`, `model_used`, `upstream_provider` | Who actually served it |
 | `params` | The prompt params, with your per-call overrides layered on |
@@ -315,6 +324,6 @@ PTN_HOST=http://localhost:4000 PTN_API_KEY=ptn_sdkfixture_… ./gradlew test
 
 ## Prompt tools and trace events
 
-Schema 7+ prompt versions may include a `tools` block with OpenAI-compatible function tool definitions plus optional `tool_choice` and `parallel_tool_calls`. The SDK merges those into the provider params it returns and strips authoring-only `output_schema` / `output_examples` before the provider request body is built. The SDK never calls tools itself.
+Schema 1+ prompt versions may include a `tools` block with OpenAI-compatible function tool definitions plus optional `tool_choice` and `parallel_tool_calls`. The SDK merges those into the provider params it returns and strips authoring-only `output_schema` / `output_examples` before the provider request body is built. The SDK never calls tools itself.
 
 Use `logEvents` to submit observed tool attempts and completion events to the same monitoring endpoint when your application has executed or rejected tool calls. Events require `trace_id`, `event_kind`, and `status`; the SDK fills `event_id`, `observed_at`, SDK identity, and `metadata.sdk.version` when they are absent. Completion events whose `completion_output` is exactly the closed Req transport error are omitted after validation.

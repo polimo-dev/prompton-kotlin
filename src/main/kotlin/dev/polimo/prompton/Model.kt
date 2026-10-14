@@ -82,14 +82,15 @@ public data class PayloadPolicy
         }
     }
 
-/** One declared input variable of a prompt. */
-public data class InputVariable
+/** One declared variable of a prompt. */
+public data class VariableDefinition
     @JvmOverloads
     constructor(
         val name: String,
         val type: String = "string",
         val required: Boolean = false,
         val description: String? = null,
+        val example: Any? = null,
     )
 
 /** A prompt as the prompt document describes it. */
@@ -97,7 +98,7 @@ public data class UseCaseEntry(
     val id: String?,
     val key: String,
     val kind: UseCaseKind,
-    val inputSchema: List<InputVariable>,
+    val variables: List<VariableDefinition>,
     val defaultParams: Map<String, Any?>,
     val payloadPolicy: PayloadPolicy?,
 )
@@ -115,7 +116,7 @@ public data class Deployment(
     val promptPins: Map<String, String>,
 )
 
-/** An immutable prompt version. The [id] is a legacy UUID or a schema v8 readable lookup key. */
+/** An immutable prompt version. The [id] is a readable lookup key. */
 public data class PromptVersion(
     val id: String,
     val promptId: String?,
@@ -162,7 +163,7 @@ public data class PreparedRequestOptions
         val user: String? = null,
     )
 
-/** A model catalog entry. The [id] is a legacy UUID or a schema v8 readable lookup key. */
+/** A model catalog entry. The [id] is a readable lookup key. */
 public data class ModelEntry(
     val id: String,
     val provider: String?,

@@ -174,7 +174,7 @@ class SnapshotCacheTest {
     }
 
     @Test
-    fun `schema 8 bundle loads with readable refs and no public ids`() {
+    fun `offline bundle bundle loads with readable refs and no public ids`() {
         val bundle = tempDir.resolve("prompts.production.json")
         SnapshotFilesForTest.write(bundle, readableSchemaEight())
         PromptOn(
@@ -198,8 +198,8 @@ class SnapshotCacheTest {
     }
 
     @Test
-    fun `schema 9 single prompt cache and export preserve original bytes`() {
-        val body = schemaNineSinglePrompt()
+    fun `single detail single prompt cache and export preserve original bytes`() {
+        val body = singleDetailSinglePrompt()
         val cache = tempDir.resolve("snapshot.json")
         val exported = tempDir.resolve("exported.json")
         val transport =
@@ -378,9 +378,9 @@ class SnapshotCacheTest {
 
     private fun readableSchemaEight(): String =
         """
-        {"schema_version": 8, "project": "fixture", "environment": "production",
+        {"schema_version": 1, "project": "fixture", "environment": "production",
          "prompts": {"greeting": {"kind": "chat",
-                                  "input_schema": [{"name":"name","type":"string","required":true}],
+                                  "variables": [{"name":"name","type":"string","required":true}],
                                   "default_params": {"max_tokens": 512}}},
          "deployments": {"greeting": {"revision": "v2026.10.14-1", "provider": "openrouter",
                                       "model": "openai/gpt-4o-mini", "prompt_version": 2,
@@ -397,10 +397,10 @@ class SnapshotCacheTest {
                                                       "capabilities": [], "status": "active"}}}
         """.trimIndent()
 
-    private fun schemaNineSinglePrompt(): String =
+    private fun singleDetailSinglePrompt(): String =
         """
-        {"schema_version":9,"project":"fixture","environment":"production",
-         "prompt":{"key":"support_reply","kind":"chat","input_schema":[],
+        {"schema_version":1,"project":"fixture","environment":"production",
+         "prompt":{"key":"support_reply","kind":"chat","variables":[],
                    "default_params":{},"payload_policy":{"mode":"full","sample_rate":1.0,
                    "max_bytes":262144}},
          "deployment":{"revision":"v2026.10.14-1","provider":"openrouter",

@@ -77,20 +77,80 @@ class UseCaseConformanceTest {
     fun `native tool messages survive rendering as whole provider maps`() {
         val document = UseCaseDocument.parse(
             """
-            {"schema_version": 7, "project": "p", "environment": "production",
-             "prompts": {"tool_chat": {"id": "u1", "kind": "chat", "default_params": {}}},
-             "deployments": {"tool_chat": {"id": "d1", "revision": "v2026.09.30-1", "model_id": "m1",
-                                          "params": {}, "provider_options": {},
-                                          "template_pins": {"default": "v1"}}},
-             "prompt_versions": {"v1": {"id": "v1", "number": 1, "engine": "liquid",
-                "messages": [
-                  {"role":"system","content":"Continue with {{ input }}."},
-                  {"role":"assistant","tool_calls":[{"id":"call_search","type":"function","function":{"name":"search","arguments":"{\"q\":\"diary\"}"}}],"content":null},
-                  {"role":"tool","tool_call_id":"call_search","content":[{"type":"text","text":"found"}]},
-                  {"role":"user","content":"Next: {{ input }}"}
-                ]}},
-             "models": {"m1": {"id": "m1", "provider": "openrouter", "model_id": "openai/gpt-4o-mini",
-                               "provider_options": {}, "capabilities": ["tools"], "status": "active"}}
+            {
+              "schema_version": 1,
+              "project": "p",
+              "environment": "production",
+              "prompts": {
+                "tool_chat": {
+                  "kind": "chat",
+                  "default_params": {},
+                  "key": "tool_chat"
+                }
+              },
+              "deployments": {
+                "tool_chat": {
+                  "revision": "v2026.09.30-1",
+                  "params": {},
+                  "provider_options": {},
+                  "provider": "openrouter",
+                  "model": "openai/gpt-4o-mini",
+                  "prompt_version": 1
+                }
+              },
+              "prompt_versions": {
+                "tool_chat@1": {
+                  "number": 1,
+                  "engine": "liquid",
+                  "messages": [
+                    {
+                      "role": "system",
+                      "content": "Continue with {{ input }}."
+                    },
+                    {
+                      "role": "assistant",
+                      "tool_calls": [
+                        {
+                          "id": "call_search",
+                          "type": "function",
+                          "function": {
+                            "name": "search",
+                            "arguments": "{\"q\":\"diary\"}"
+                          }
+                        }
+                      ],
+                      "content": null
+                    },
+                    {
+                      "role": "tool",
+                      "tool_call_id": "call_search",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "found"
+                        }
+                      ]
+                    },
+                    {
+                      "role": "user",
+                      "content": "Next: {{ input }}"
+                    }
+                  ],
+                  "prompt": "tool_chat",
+                  "kind": "chat"
+                }
+              },
+              "models": {
+                "openrouter:openai/gpt-4o-mini": {
+                  "provider": "openrouter",
+                  "provider_options": {},
+                  "capabilities": [
+                    "tools"
+                  ],
+                  "status": "active",
+                  "model": "openai/gpt-4o-mini"
+                }
+              }
             }
             """.trimIndent(),
         )
@@ -121,19 +181,77 @@ class UseCaseConformanceTest {
     fun `prompt tools become provider params and strip authoring metadata`() {
         val document = UseCaseDocument.parse(
             """
-            {"schema_version": 7, "project": "p", "environment": "production",
-             "prompts": {"tool_chat": {"id": "u1", "kind": "chat", "default_params": {}}},
-             "deployments": {"tool_chat": {"id": "d1", "revision": "v2026.09.30-1", "model_id": "m1",
-                                          "params": {}, "provider_options": {},
-                                          "template_pins": {"default": "v1"}}},
-             "prompt_versions": {"v1": {"id": "v1", "number": 1, "engine": "liquid",
-                "messages": [{"role":"user","content":"hi"}],
-                "tools": {"definitions": [{"type":"function","function":{"name":"search"},
-                                             "output_schema":{"type":"object"},"output_examples":[{"ok":true}]}],
-                          "tool_choice": {"type":"function","function":{"name":"search"}},
-                          "parallel_tool_calls": false}}},
-             "models": {"m1": {"id": "m1", "provider": "openrouter", "model_id": "openai/gpt-4o-mini",
-                               "provider_options": {}, "capabilities": ["tools"], "status": "active"}}
+            {
+              "schema_version": 1,
+              "project": "p",
+              "environment": "production",
+              "prompts": {
+                "tool_chat": {
+                  "kind": "chat",
+                  "default_params": {},
+                  "key": "tool_chat"
+                }
+              },
+              "deployments": {
+                "tool_chat": {
+                  "revision": "v2026.09.30-1",
+                  "params": {},
+                  "provider_options": {},
+                  "provider": "openrouter",
+                  "model": "openai/gpt-4o-mini",
+                  "prompt_version": 1
+                }
+              },
+              "prompt_versions": {
+                "tool_chat@1": {
+                  "number": 1,
+                  "engine": "liquid",
+                  "messages": [
+                    {
+                      "role": "user",
+                      "content": "hi"
+                    }
+                  ],
+                  "tools": {
+                    "definitions": [
+                      {
+                        "type": "function",
+                        "function": {
+                          "name": "search"
+                        },
+                        "output_schema": {
+                          "type": "object"
+                        },
+                        "output_examples": [
+                          {
+                            "ok": true
+                          }
+                        ]
+                      }
+                    ],
+                    "tool_choice": {
+                      "type": "function",
+                      "function": {
+                        "name": "search"
+                      }
+                    },
+                    "parallel_tool_calls": false
+                  },
+                  "prompt": "tool_chat",
+                  "kind": "chat"
+                }
+              },
+              "models": {
+                "openrouter:openai/gpt-4o-mini": {
+                  "provider": "openrouter",
+                  "provider_options": {},
+                  "capabilities": [
+                    "tools"
+                  ],
+                  "status": "active",
+                  "model": "openai/gpt-4o-mini"
+                }
+              }
             }
             """.trimIndent(),
         )
@@ -151,16 +269,57 @@ class UseCaseConformanceTest {
     fun `prompt tools conflict with different legacy provider params`() {
         val document = UseCaseDocument.parse(
             """
-            {"schema_version": 7, "project": "p", "environment": "production",
-             "prompts": {"tool_chat": {"id": "u1", "kind": "chat", "default_params": {}}},
-             "deployments": {"tool_chat": {"id": "d1", "revision": "v2026.09.30-1", "model_id": "m1",
-                                          "params": {"parallel_tool_calls": true}, "provider_options": {},
-                                          "template_pins": {"default": "v1"}}},
-             "prompt_versions": {"v1": {"id": "v1", "number": 1, "engine": "liquid",
-                "messages": [{"role":"user","content":"hi"}],
-                "tools": {"parallel_tool_calls": false}}},
-             "models": {"m1": {"id": "m1", "provider": "openrouter", "model_id": "openai/gpt-4o-mini",
-                               "provider_options": {}, "capabilities": ["tools"], "status": "active"}}
+            {
+              "schema_version": 1,
+              "project": "p",
+              "environment": "production",
+              "prompts": {
+                "tool_chat": {
+                  "kind": "chat",
+                  "default_params": {},
+                  "key": "tool_chat"
+                }
+              },
+              "deployments": {
+                "tool_chat": {
+                  "revision": "v2026.09.30-1",
+                  "params": {
+                    "parallel_tool_calls": true
+                  },
+                  "provider_options": {},
+                  "provider": "openrouter",
+                  "model": "openai/gpt-4o-mini",
+                  "prompt_version": 1
+                }
+              },
+              "prompt_versions": {
+                "tool_chat@1": {
+                  "number": 1,
+                  "engine": "liquid",
+                  "messages": [
+                    {
+                      "role": "user",
+                      "content": "hi"
+                    }
+                  ],
+                  "tools": {
+                    "parallel_tool_calls": false
+                  },
+                  "prompt": "tool_chat",
+                  "kind": "chat"
+                }
+              },
+              "models": {
+                "openrouter:openai/gpt-4o-mini": {
+                  "provider": "openrouter",
+                  "provider_options": {},
+                  "capabilities": [
+                    "tools"
+                  ],
+                  "status": "active",
+                  "model": "openai/gpt-4o-mini"
+                }
+              }
             }
             """.trimIndent(),
         )
@@ -185,10 +344,10 @@ class UseCaseConformanceTest {
         fields["params"] = jsonOf(useCase.params)
         fields["provider_options"] = jsonOf(useCase.providerOptions)
         fields["prompt_version"] =
-            useCase.promptVersionId?.let { id ->
+            useCase.promptVersionNumber?.let { number ->
                 buildJsonObject {
-                    put("id", id)
-                    put("number", useCase.promptVersionNumber)
+                    put("id", JsonNull)
+                    put("number", number)
                 }
             } ?: JsonNull
         fields["warnings"] = JsonArray(useCase.warnings.map { JsonPrimitive(it) })

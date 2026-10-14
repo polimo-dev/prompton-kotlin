@@ -6,8 +6,8 @@ reproduces the expected values byte for byte. When two SDKs disagree about how a
 which model a prompt document selects, or how a monitoring log is truncated, an app that talks to
 PromptOn from two languages gets two different answers. That is what these files prevent.
 
-Nothing here is hand-written. `scripts/gen_conformance.exs` in this repository executes the Elixir
-SDK and writes down what it actually produced:
+The suite originated from the Elixir SDK generator; prompt documents and expectations here are
+updated for the current schema-1 contract. The generator runs with:
 
 ```
 mix run scripts/gen_conformance.exs
@@ -23,7 +23,7 @@ Each file records the commit it was generated from in `generated_from.commit`.
 | File | What it pins down | Cases |
 |---|---|---|
 | `template.json` | Prompt rendering: the Liquid subset PromptOn allows | 72 render (4 non-normative), 10 lint, 5 detected-variables |
-| `prompt.json` | Use case document + prompt (+ prompt name) → model, params, prompt version, rendered messages | 3 documents, 15 cases |
+| `prompt.json` | Use case document + prompt (+ prompt name) → model, params, prompt version, rendered messages | 3 documents, 16 cases |
 | `truncation.json` | The payload policy the SDK applies to a monitoring log before sending it | 19 cases + 5 sampling buckets |
 | `stop_kind.json` | Provider `finish_reason` → PromptOn `stop_kind` | 22 cases |
 | `log_record.json` | Complete monitoring-log records and the batch envelope | 5 records |
@@ -52,8 +52,9 @@ the prompt version is committed, so a template that fails lint can never reach a
 
 ### prompt.json
 
-`documents` is a map of reference name → a complete schema-v4 prompt document, exactly as
-`GET /api/v1/prompts?environment=…` returns it. For each case, decode
+`documents` maps reference names to complete schema-1 offline bundles with keyed resource maps.
+The HTTP list endpoint returns only keys and kinds; configuration comes from the singular
+`GET /api/v1/prompts/{key}?environment=…` endpoint. For each case, decode
 `documents[document_ref]`, use_case `prompt_key` with the optional `prompt` name, and — when
 `variables` is present — render the resulting prompt. This is precisely what `POST /api/v1/prompts/{key}/render`
 does on the server.

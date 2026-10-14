@@ -32,7 +32,7 @@ public data class UseCase(
     val messageTemplates: List<PromptMessage>?,
     val decisionTemplate: DecisionTemplate? = null,
     val textTemplate: String?,
-    val inputSchema: List<InputVariable>,
+    val variables: List<VariableDefinition>,
     val payloadPolicy: PayloadPolicy?,
     val source: UseCaseSource,
     val etag: String?,
@@ -186,7 +186,13 @@ internal object Resolver {
     ): UseCase {
         val useCase = document.useCases[useCaseKey] ?: throw UnknownUseCaseException(useCaseKey)
         val deployment = document.deployments[useCaseKey] ?: throw UnresolvedUseCaseException(useCaseKey)
-        val promptNames = deployment.promptPins.keys.sorted()
+        val promptNames = if (useCase.kind ==
+            UseCaseKind.EMBEDDING
+        ) {
+            emptyList()
+        } else {
+            deployment.promptPins.keys.sorted()
+        }
 
         val promptName: String?
         val versionId: String?
@@ -226,19 +232,19 @@ internal object Resolver {
             prompt = promptName,
             promptNames = if (useCase.kind == UseCaseKind.EMBEDDING) emptyList() else promptNames,
             model = model?.modelId,
-            modelId = if (document.schemaVersion >= 8) null else model?.id,
+            modelId = null,
             provider = model?.provider,
             api = deployment.api,
             requestPath = deployment.requestPath,
             params = mergeTools(mergeShallow(useCase.defaultParams, deployment.params), version?.tools),
             providerOptions = mergeShallow(model?.providerOptions, deployment.providerOptions),
-            promptVersionId = if (document.schemaVersion >= 8) null else version?.id,
+            promptVersionId = null,
             promptVersionNumber = version?.number,
             engine = version?.engine ?: TemplateEngine.LIQUID,
             messageTemplates = if (runtimeKind == UseCaseKind.CHAT) version?.messages else null,
             decisionTemplate = if (runtimeKind == UseCaseKind.DECISION) version?.decision else null,
             textTemplate = if (runtimeKind == UseCaseKind.TEXT) version?.textTemplate else null,
-            inputSchema = useCase.inputSchema,
+            variables = useCase.variables,
             payloadPolicy = useCase.payloadPolicy,
             source = source,
             etag = etag,

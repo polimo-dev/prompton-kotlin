@@ -129,8 +129,8 @@ class DecisionSupportTest {
         PromptOn(config(mode = PromptOnMode.TEST), FakeClock()).use { prompton ->
             prompton.putUseCaseDocument(
                 decisionDocument().replace(
-                    "\"criteria\": [\"calm\", \"strong\"]",
-                    "\"criteria\": [\"only-one\"]",
+                    "\"strong\"",
+                    "null",
                 ),
                 UseCaseSource.MANUAL,
             )
@@ -139,11 +139,8 @@ class DecisionSupportTest {
             }
         }
 
-        PromptOn(config(), FakeClock()).use { prompton ->
-            prompton.putUseCaseDocument(legacyDecisionDocument(), UseCaseSource.MANUAL)
-            assertFailsWith<PreparedRequestException> {
-                prompton.useCase("sentiment").request(mapOf("diary" to "hi"))
-            }
+        assertFailsWith<UnsupportedSchemaVersionException> {
+            UseCaseDocument.parse(decisionDocument().replace("\"schema_version\": 1", "\"schema_version\": 5"))
         }
 
         PromptOn(config(), FakeClock()).use { prompton ->
@@ -323,11 +320,6 @@ class DecisionSupportTest {
         }
     }
 
-    private fun legacyDecisionDocument(): String =
-        decisionDocument()
-            .replace("\"schema_version\": 7", "\"schema_version\": 5")
-            .replace("\"kind\": \"decision\",\\n              \"engine\"", "\"engine\"")
-
     private fun decisionDocumentWithoutPinnedKind(): String {
         val document = decisionDocument()
         val promptVersions = document.indexOf("\"prompt_versions\"")
@@ -338,41 +330,52 @@ class DecisionSupportTest {
     private fun decisionDocument(): String =
         """
         {
-          "schema_version": 7,
+          "schema_version": 1,
           "project": "fixture",
           "environment": "production",
           "prompts": {
             "sentiment": {
-              "id": "0198f2a1-0000-7000-8000-00000000c005",
               "kind": "decision",
-              "input_schema": [{"name": "diary", "type": "string", "required": true}],
               "default_params": {},
-              "payload_policy": {"mode": "full", "sample_rate": 1.0, "max_bytes": 262144}
+              "payload_policy": {
+                "mode": "full",
+                "sample_rate": 1.0,
+                "max_bytes": 262144
+              },
+              "variables": [
+                {
+                  "name": "diary",
+                  "type": "string",
+                  "required": true
+                }
+              ],
+              "key": "sentiment"
             }
           },
           "deployments": {
             "sentiment": {
-              "id": "0198f2a1-0000-7000-8000-00000000d004",
               "revision": "v2026.09.30-5",
-              "model_id": "0198f2a1-0000-7000-8000-00000000e003",
               "api": "decisions",
               "request_path": "/api/v1/systemone",
               "params": {},
               "provider_options": {},
-              "template_pins": {"default": "0198f2a1-0000-7000-8000-00000000a004"}
+              "provider": "openrouter",
+              "model": "typesafe/jev-1.13",
+              "prompt_version": 1
             }
           },
           "prompt_versions": {
-            "0198f2a1-0000-7000-8000-00000000a004": {
-              "id": "0198f2a1-0000-7000-8000-00000000a004",
-              "prompt_id": "0198f2a1-0000-7000-8000-00000000b004",
+            "sentiment@1": {
               "number": 1,
               "kind": "decision",
               "engine": "liquid",
               "messages": [],
               "text_template": null,
               "decision": {
-                "state": {"diary": "{{ diary }}", "static_key": "literal"},
+                "state": {
+                  "diary": "{{ diary }}",
+                  "static_key": "literal"
+                },
                 "questions": {
                   "mood": {
                     "type": "choice",
@@ -393,26 +396,35 @@ class DecisionSupportTest {
                   "intensity": {
                     "type": "score",
                     "instructions": "Rate intensity.",
-                    "criteria": ["calm", "strong"]
+                    "criteria": [
+                      "calm",
+                      "strong"
+                    ]
                   },
                   "__proto__": {
                     "type": "noul",
                     "instructions": "Read {{ diary }}"
                   }
                 }
-              }
+              },
+              "prompt": "sentiment"
             }
           },
           "models": {
-            "0198f2a1-0000-7000-8000-00000000e003": {
-              "id": "0198f2a1-0000-7000-8000-00000000e003",
+            "openrouter:typesafe/jev-1.13": {
               "provider": "openrouter",
-              "model_id": "typesafe/jev-1.13",
               "display_name": "Jev",
-              "metadata": {"output_modalities": ["decisions"]},
+              "metadata": {
+                "output_modalities": [
+                  "decisions"
+                ]
+              },
               "provider_options": {},
-              "capabilities": ["decisions"],
-              "status": "active"
+              "capabilities": [
+                "decisions"
+              ],
+              "status": "active",
+              "model": "typesafe/jev-1.13"
             }
           }
         }

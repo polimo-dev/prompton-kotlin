@@ -1,17 +1,10 @@
 {
-  "schema_version": 8,
+  "schema_version": 1,
   "project": "sdkfixture",
   "environment": "production",
   "prompts": {
     "greeting": {
       "kind": "chat",
-      "input_schema": [
-        {
-          "name": "name",
-          "required": true,
-          "type": "string"
-        }
-      ],
       "default_params": {
         "max_tokens": 256
       },
@@ -21,7 +14,15 @@
         "mode": "full",
         "retention_days": 30,
         "sample_rate": 1.0
-      }
+      },
+      "variables": [
+        {
+          "name": "name",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "key": "greeting"
     }
   },
   "deployments": {

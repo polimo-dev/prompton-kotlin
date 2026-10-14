@@ -2,6 +2,14 @@
 
 All notable changes to the PromptOn Kotlin SDK.
 
+## 0.8.0
+
+Breaking contract reset: prompt variable definitions are now `variables`, and only schema version 1 is accepted.
+
+- Decode singular prompt details and keyed offline bundles by shape, without old schema-version branches or `input_schema` aliases.
+- Keep runtime render values and native provider payloads unchanged.
+- Reject lightweight prompt-list responses as configuration; cache and export retain the original detail bytes.
+
 ## 0.7.1
 
 - Read schema v9 single-prompt documents from `GET /prompts/{key}` with singular `prompt`,

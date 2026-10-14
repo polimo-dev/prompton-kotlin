@@ -13,89 +13,111 @@ object SnapshotFixtures {
     ): String =
         """
         {
-          "schema_version": 4,
+          "schema_version": 1,
           "project": "$project",
           "environment": "$environment",
           "prompts": {
             "greeting": {
-              "id": "0198f2a1-0000-7000-8000-0000000000c1",
               "kind": "chat",
-              "input_schema": [{"name": "name", "type": "string", "required": true}],
-              "default_params": {"max_tokens": 512},
-              "payload_policy": {"mode": "full", "sample_rate": 1.0, "max_bytes": 262144,
-                                 "retention_days": 30, "encrypt": false}
+              "default_params": {
+                "max_tokens": 512
+              },
+              "payload_policy": {
+                "mode": "full",
+                "sample_rate": 1.0,
+                "max_bytes": 262144,
+                "retention_days": 30,
+                "encrypt": false
+              },
+              "variables": [
+                {
+                  "name": "name",
+                  "type": "string",
+                  "required": true
+                }
+              ],
+              "key": "greeting"
             },
             "summarize": {
-              "id": "0198f2a1-0000-7000-8000-0000000000c2",
               "kind": "text",
-              "input_schema": [{"name": "items", "type": "list", "required": true}],
               "default_params": {},
-              "payload_policy": {"mode": "full", "sample_rate": 1.0, "max_bytes": 262144}
+              "payload_policy": {
+                "mode": "full",
+                "sample_rate": 1.0,
+                "max_bytes": 262144
+              },
+              "variables": [
+                {
+                  "name": "items",
+                  "type": "list",
+                  "required": true
+                }
+              ],
+              "key": "summarize"
             }
           },
           "deployments": {
             "greeting": {
-              "id": "0198f2a1-0000-7000-8000-00000000d001",
               "revision": "v2026.09.30-3",
-              "model_id": "0198f2a1-0000-7000-8000-00000000e001",
-              "params": {"temperature": $temperature},
+              "params": {
+                "temperature": $temperature
+              },
               "provider_options": {},
-              "template_pins": {
-                "default": "0198f2a1-0000-7000-8000-00000000a001",
-                "ko": "0198f2a1-0000-7000-8000-00000000a002"
-              }
+              "provider": "openrouter",
+              "model": "openai/gpt-4o-mini",
+              "prompt_version": 2
             },
             "summarize": {
-              "id": "0198f2a1-0000-7000-8000-00000000d002",
               "revision": "v2026.09.30-1",
-              "model_id": "0198f2a1-0000-7000-8000-00000000e001",
               "params": {},
               "provider_options": {},
-              "template_pins": {"default": "0198f2a1-0000-7000-8000-00000000a003"}
+              "provider": "openrouter",
+              "model": "openai/gpt-4o-mini",
+              "prompt_version": 1
             }
           },
           "prompt_versions": {
-            "0198f2a1-0000-7000-8000-00000000a001": {
-              "id": "0198f2a1-0000-7000-8000-00000000a001",
-              "prompt_id": "0198f2a1-0000-7000-8000-00000000b001",
+            "greeting@2": {
               "number": 2,
               "engine": "liquid",
               "messages": [
-                {"role": "system", "content": "$systemPrompt"},
-                {"role": "user", "content": "Say hello to {{ name }}."}
+                {
+                  "role": "system",
+                  "content": "$systemPrompt"
+                },
+                {
+                  "role": "user",
+                  "content": "Say hello to {{ name }}."
+                }
               ],
-              "text_template": null
+              "text_template": null,
+              "prompt": "greeting",
+              "kind": "chat"
             },
-            "0198f2a1-0000-7000-8000-00000000a002": {
-              "id": "0198f2a1-0000-7000-8000-00000000a002",
-              "prompt_id": "0198f2a1-0000-7000-8000-00000000b002",
-              "number": 4,
-              "engine": "liquid",
-              "messages": [
-                {"role": "system", "content": "친절한 인사 도우미입니다."},
-                {"role": "user", "content": "{{ name }}에게 한국어로 인사해 주세요."}
-              ],
-              "text_template": null
-            },
-            "0198f2a1-0000-7000-8000-00000000a003": {
-              "id": "0198f2a1-0000-7000-8000-00000000a003",
-              "prompt_id": "0198f2a1-0000-7000-8000-00000000b003",
+            "summarize@1": {
               "number": 1,
               "engine": "liquid",
               "messages": [],
-              "text_template": "Summarize:\\n{% for item in items %}- {{ item }}\\n{% endfor %}"
+              "text_template": "Summarize:\\n{% for item in items %}- {{ item }}\\n{% endfor %}",
+              "prompt": "summarize",
+              "kind": "text"
             }
           },
           "models": {
-            "0198f2a1-0000-7000-8000-00000000e001": {
-              "id": "0198f2a1-0000-7000-8000-00000000e001",
+            "openrouter:openai/gpt-4o-mini": {
               "provider": "openrouter",
-              "model_id": "openai/gpt-4o-mini",
               "display_name": "GPT-4o mini",
               "metadata": {},
-              "provider_options": {"only": ["OpenAI"]},
-              "capabilities": ["tools"],
-              "status": "active"
+              "provider_options": {
+                "only": [
+                  "OpenAI"
+                ]
+              },
+              "capabilities": [
+                "tools"
+              ],
+              "status": "active",
+              "model": "openai/gpt-4o-mini"
             }
           }
         }

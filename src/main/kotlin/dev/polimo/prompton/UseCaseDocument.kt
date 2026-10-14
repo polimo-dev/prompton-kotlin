@@ -16,8 +16,7 @@ public class UnsupportedSchemaVersionException(
 /**
  * A decoded PromptOn prompt document: either a bundle or one demand-fetched prompt key.
  *
- * Decoding is lenient about additions to schema versions 4 through 9, and strict about the
- * schema itself.
+ * Only schema version 1 is accepted; detail responses and offline bundles are distinguished by shape.
  */
 public class UseCaseDocument internal constructor(
     public val schemaVersion: Int,
@@ -43,7 +42,7 @@ public class UseCaseDocument internal constructor(
     public fun toJson(): String = source
 
     public companion object {
-        public const val SCHEMA_VERSION: Int = 9
+        public const val SCHEMA_VERSION: Int = 1
 
         /** Decodes a PromptOn prompt document body. */
         public fun parse(json: String): UseCaseDocument = decode(Ptn.parseObject(json), json)
@@ -55,13 +54,21 @@ public class UseCaseDocument internal constructor(
             val warnings = mutableListOf<String>()
             val schemaVersion =
                 schemaVersionOf(root["schema_version"])
-                    ?: throw PromptOnException("prompt document schema_version must be integer 4")
-            if (schemaVersion !in 4..SCHEMA_VERSION) throw UnsupportedSchemaVersionException(schemaVersion)
-            val normalized = if (schemaVersion == 9) normalizeSingleDocument(root) else root
+                    ?: throw PromptOnException("prompt document schema_version must be integer 1")
+            if (schemaVersion != SCHEMA_VERSION) throw UnsupportedSchemaVersionException(schemaVersion)
+            val singular = listOf("prompt", "deployment", "prompt_version", "model").any(root::containsKey)
+            val normalized = if (singular) normalizeSingleDocument(root) else root
 
             val useCasesRaw =
                 Ptn.asObject(normalized["prompts"])
-                    ?: throw PromptOnException("prompt document prompts is required")
+                    ?: throw PromptOnException(
+                        "prompt document requires keyed prompts; a discovery index is not configuration",
+                    )
+            for (field in listOf("deployments", "prompt_versions", "models")) {
+                if (normalized[field] !is JsonObject) {
+                    throw PromptOnException("prompt document $field is required")
+                }
+            }
 
             val useCases =
                 useCasesRaw.entries.associate { (key, value) ->
@@ -72,7 +79,7 @@ public class UseCaseDocument internal constructor(
                 Ptn
                     .asObject(normalized["deployments"])
                     ?.entries
-                    ?.associate { (key, value) -> key to decodeDeployment(key, Ptn.asObject(value), schemaVersion) }
+                    ?.associate { (key, value) -> key to decodeDeployment(key, Ptn.asObject(value)) }
                     .orEmpty()
 
             val promptVersions =
@@ -80,7 +87,7 @@ public class UseCaseDocument internal constructor(
                     .asObject(normalized["prompt_versions"])
                     ?.entries
                     ?.mapNotNull { (id, value) ->
-                        Ptn.asObject(value)?.let { id to decodePromptVersion(id, it, schemaVersion) }
+                        Ptn.asObject(value)?.let { id to decodePromptVersion(id, it) }
                     }?.toMap()
                     .orEmpty()
 
@@ -90,7 +97,7 @@ public class UseCaseDocument internal constructor(
                     ?.entries
                     ?.mapNotNull { (id, value) ->
                         Ptn.asObject(value)?.let { model ->
-                            id to decodeModel(id, model, schemaVersion)
+                            id to decodeModel(id, model)
                         }
                     }?.toMap()
                     .orEmpty()
@@ -115,17 +122,17 @@ public class UseCaseDocument internal constructor(
                 root.containsKey("prompt_versions") ||
                 root.containsKey("models")
             ) {
-                throw PromptOnException("schema 9 single prompt document must use singular resources")
+                throw PromptOnException("single prompt document must use singular resources")
             }
 
             val prompt = Ptn.asObject(root["prompt"])
-                ?: throw PromptOnException("schema 9 single prompt document prompt is required")
+                ?: throw PromptOnException("single prompt document prompt is required")
             val deployment = Ptn.asObject(root["deployment"])
-                ?: throw PromptOnException("schema 9 single prompt document deployment is required")
+                ?: throw PromptOnException("single prompt document deployment is required")
             val version = Ptn.asObject(root["prompt_version"])
-                ?: throw PromptOnException("schema 9 single prompt document prompt version is required")
+                ?: throw PromptOnException("single prompt document prompt version is required")
             val model = Ptn.asObject(root["model"])
-                ?: throw PromptOnException("schema 9 single prompt document model is required")
+                ?: throw PromptOnException("single prompt document model is required")
 
             val key = requiredString(prompt, "key", "prompt key")
             val versionPrompt = requiredString(version, "prompt", "prompt version prompt")
@@ -174,26 +181,27 @@ public class UseCaseDocument internal constructor(
                 warnings += "unknown_kind: $kindText"
             }
             return UseCaseEntry(
-                id = Ptn.asString(raw?.get("id")),
+                id = null,
                 key = key,
                 kind = UseCaseKind.fromWire(kindText),
-                inputSchema = decodeInputSchema(raw),
+                variables = decodeVariables(raw),
                 defaultParams = nativeMap(raw?.get("default_params")),
                 payloadPolicy = decodePayloadPolicy(Ptn.asObject(raw?.get("payload_policy"))),
             )
         }
 
-        private fun decodeInputSchema(raw: JsonObject?): List<InputVariable> =
+        private fun decodeVariables(raw: JsonObject?): List<VariableDefinition> =
             Ptn
-                .asArray(raw?.get("input_schema"))
+                .asArray(raw?.get("variables"))
                 ?.mapNotNull { element ->
                     val entry = Ptn.asObject(element) ?: return@mapNotNull null
                     val name = Ptn.asString(entry["name"]) ?: return@mapNotNull null
-                    InputVariable(
+                    VariableDefinition(
                         name = name,
                         type = Ptn.asString(entry["type"]) ?: "string",
                         required = Ptn.toNative(entry["required"]) == true,
                         description = Ptn.asString(entry["description"]),
+                        example = Decisions.freeze(Ptn.toNative(entry["example"])),
                     )
                 }.orEmpty()
 
@@ -212,37 +220,22 @@ public class UseCaseDocument internal constructor(
         private fun decodeDeployment(
             key: String,
             raw: JsonObject?,
-            schemaVersion: Int,
         ): Deployment =
             Deployment(
-                id = if (schemaVersion >= 8) null else Ptn.asString(raw?.get("id")),
-                useCaseKey = Ptn.asString(raw?.get("use_case_key")) ?: key,
+                id = null,
+                useCaseKey = key,
                 revision = revisionOf(raw?.get("revision")),
-                modelId =
-                    if (schemaVersion >= 8) {
-                        readableModelKey(
-                            requiredString(raw, "provider", "deployment provider"),
-                            requiredString(raw, "model", "deployment model"),
-                        )
-                    } else {
-                        Ptn.asString(raw?.get("model_id"))
-                    },
-                api = if (schemaVersion >= 6 && raw != null) Ptn.asString(raw["api"]) else null,
-                requestPath = if (schemaVersion >= 6 && raw != null) Ptn.asString(raw["request_path"]) else null,
+                modelId = readableModelKey(
+                    requiredString(raw, "provider", "deployment provider"),
+                    requiredString(raw, "model", "deployment model"),
+                ),
+                api = Ptn.asString(raw?.get("api")),
+                requestPath = Ptn.asString(raw?.get("request_path")),
                 params = nativeMap(raw?.get("params")),
                 providerOptions = nativeMap(raw?.get("provider_options")),
-                promptPins =
-                    if (schemaVersion >= 8) {
-                        val number = strictPositiveInt(raw?.get("prompt_version"), "deployment prompt_version")
-                        mapOf("default" to "$key@$number")
-                    } else {
-                        Ptn
-                            .asObject(raw?.get("template_pins"))
-                            ?.entries
-                            ?.mapNotNull { (name, value) -> Ptn.asString(value)?.let { name to it } }
-                            ?.toMap()
-                            .orEmpty()
-                    },
+                promptPins = mapOf(
+                    "default" to "$key@${strictPositiveInt(raw?.get("prompt_version"), "deployment prompt_version")}",
+                ),
             )
 
         private fun revisionOf(value: JsonElement?): String? {
@@ -254,26 +247,18 @@ public class UseCaseDocument internal constructor(
         private fun decodePromptVersion(
             id: String,
             raw: JsonObject,
-            schemaVersion: Int,
         ): PromptVersion {
-            val promptId: String?
-            val number: Int?
-            if (schemaVersion >= 8) {
-                promptId = requiredString(raw, "prompt", "prompt version prompt")
-                number = strictPositiveInt(raw["number"], "prompt version number")
-                val expectedId = "$promptId@$number"
-                if (id != expectedId) {
-                    throw PromptOnException("prompt version key $id must match embedded prompt and number $expectedId")
-                }
-            } else {
-                promptId = Ptn.asString(raw["prompt_id"])
-                number = Ptn.asInt(raw["number"])
+            val promptId = requiredString(raw, "prompt", "prompt version prompt")
+            val number = strictPositiveInt(raw["number"], "prompt version number")
+            val expectedId = "$promptId@$number"
+            if (id != expectedId) {
+                throw PromptOnException("prompt version key $id must match embedded prompt and number $expectedId")
             }
             return PromptVersion(
-                id = if (schemaVersion >= 8) id else Ptn.asString(raw["id"]) ?: id,
+                id = id,
                 promptId = promptId,
                 number = number,
-                kind = if (schemaVersion >= 6) UseCaseKind.fromWireOrNull(Ptn.asString(raw["kind"])) else null,
+                kind = UseCaseKind.fromWireOrNull(Ptn.asString(raw["kind"])),
                 engine = TemplateEngine.fromWire(Ptn.asString(raw["engine"])),
                 messages =
                     Ptn.asArray(raw["messages"])?.mapNotNull { element ->
@@ -311,26 +296,15 @@ public class UseCaseDocument internal constructor(
         private fun decodeModel(
             id: String,
             raw: JsonObject,
-            schemaVersion: Int,
         ): ModelEntry {
-            val provider: String?
-            val modelId: String?
-            val entryId: String
-            if (schemaVersion >= 8) {
-                provider = requiredString(raw, "provider", "model provider")
-                modelId = requiredString(raw, "model", "model name")
-                val expectedId = "$provider:$modelId"
-                if (id != expectedId) {
-                    throw PromptOnException("model key $id must match embedded provider and model $expectedId")
-                }
-                entryId = id
-            } else {
-                provider = Ptn.asString(raw["provider"])
-                modelId = Ptn.asString(raw["model"]) ?: Ptn.asString(raw["model_id"])
-                entryId = Ptn.asString(raw["id"]) ?: id
+            val provider = requiredString(raw, "provider", "model provider")
+            val modelId = requiredString(raw, "model", "model name")
+            val expectedId = "$provider:$modelId"
+            if (id != expectedId) {
+                throw PromptOnException("model key $id must match embedded provider and model $expectedId")
             }
             return ModelEntry(
-                id = entryId,
+                id = id,
                 provider = provider,
                 modelId = modelId,
                 displayName = Ptn.asString(raw["display_name"]),

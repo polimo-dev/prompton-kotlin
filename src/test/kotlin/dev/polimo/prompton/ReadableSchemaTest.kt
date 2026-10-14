@@ -8,11 +8,11 @@ import kotlin.test.assertTrue
 
 class ReadableSchemaTest {
     @Test
-    fun `schema 8 uses readable resource references without public ids`() {
+    fun `offline bundle uses readable resource references without public ids`() {
         val document =
             UseCaseDocument.parse(
                 """
-                {"schema_version": 8, "project": "p", "environment": "production",
+                {"schema_version": 1, "project": "p", "environment": "production",
                  "prompts": {
                    "greeting": {"kind": "chat", "default_params": {"temperature": 0.5}},
                    "classify": {"kind": "decision", "default_params": {}}
@@ -46,7 +46,7 @@ class ReadableSchemaTest {
             )
 
         val greeting = Resolver.resolve(document, "greeting")
-        assertEquals(8, document.schemaVersion)
+        assertEquals(1, document.schemaVersion)
         assertNull(greeting.deploymentId)
         assertNull(greeting.modelId)
         assertNull(greeting.promptVersionId)
@@ -65,11 +65,11 @@ class ReadableSchemaTest {
     }
 
     @Test
-    fun `schema 8 warnings use readable missing references`() {
+    fun `offline bundle warnings use readable missing references`() {
         val document =
             UseCaseDocument.parse(
                 """
-                {"schema_version": 8, "project": "p", "environment": "production",
+                {"schema_version": 1, "project": "p", "environment": "production",
                  "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
                  "deployments": {"greeting": {"revision": "v2026.10.14-1", "provider": "openrouter",
                                               "model": "missing:model", "prompt_version": 3,
@@ -87,11 +87,11 @@ class ReadableSchemaTest {
     }
 
     @Test
-    fun `schema 8 rejects prompt version keys that do not match embedded prompt and number`() {
+    fun `offline bundle rejects prompt version keys that do not match embedded prompt and number`() {
         assertFailsWith<PromptOnException> {
             UseCaseDocument.parse(
                 """
-                {"schema_version": 8, "project": "p", "environment": "production",
+                {"schema_version": 1, "project": "p", "environment": "production",
                  "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
                  "deployments": {"greeting": {"revision": "v2026.10.14-1", "provider": "openrouter",
                                               "model": "m", "prompt_version": 2,
@@ -108,11 +108,11 @@ class ReadableSchemaTest {
     }
 
     @Test
-    fun `schema 8 rejects model keys that do not match embedded provider and model`() {
+    fun `offline bundle rejects model keys that do not match embedded provider and model`() {
         assertFailsWith<PromptOnException> {
             UseCaseDocument.parse(
                 """
-                {"schema_version": 8, "project": "p", "environment": "production",
+                {"schema_version": 1, "project": "p", "environment": "production",
                  "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
                  "deployments": {"greeting": {"revision": "v2026.10.14-1", "provider": "openrouter",
                                               "model": "m", "prompt_version": 2,
@@ -129,11 +129,11 @@ class ReadableSchemaTest {
     }
 
     @Test
-    fun `schema 8 preserves model names containing colons`() {
+    fun `offline bundle preserves model names containing colons`() {
         val document =
             UseCaseDocument.parse(
                 """
-                {"schema_version": 8, "project": "p", "environment": "production",
+                {"schema_version": 1, "project": "p", "environment": "production",
                  "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
                  "deployments": {"greeting": {"revision": "v2026.10.14-1", "provider": "openrouter",
                                               "model": "vendor:model:with:colon", "prompt_version": 2,
@@ -152,7 +152,7 @@ class ReadableSchemaTest {
     }
 
     @Test
-    fun `schema 8 rejects invalid deployment prompt version values`() {
+    fun `offline bundle rejects invalid deployment prompt version values`() {
         val invalidFragments =
             listOf(
                 "",
@@ -166,7 +166,7 @@ class ReadableSchemaTest {
             assertFailsWith<PromptOnException> {
                 UseCaseDocument.parse(
                     """
-                    {"schema_version": 8, "project": "p", "environment": "production",
+                    {"schema_version": 1, "project": "p", "environment": "production",
                      "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
                      "deployments": {"greeting": {"revision": "v2026.10.14-1", "provider": "openrouter",
                                                   "model": "m"$fragment,
@@ -184,11 +184,11 @@ class ReadableSchemaTest {
     }
 
     @Test
-    fun `schema 8 does not accept legacy deployment aliases`() {
+    fun `offline bundle does not accept legacy deployment aliases`() {
         assertFailsWith<PromptOnException> {
             UseCaseDocument.parse(
                 """
-                {"schema_version": 8, "project": "p", "environment": "production",
+                {"schema_version": 1, "project": "p", "environment": "production",
                  "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
                  "deployments": {"greeting": {"revision": "v2026.10.14-1", "model_id": "openrouter:m",
                                               "template_pins": {"default": "greeting@2"},
@@ -205,12 +205,12 @@ class ReadableSchemaTest {
     }
 
     @Test
-    fun `schema 9 single prompt chat documents resolve from singular resources`() {
-        val document = UseCaseDocument.parse(schemaNineChat())
+    fun `single detail single prompt chat documents resolve from singular resources`() {
+        val document = UseCaseDocument.parse(singleDetailChat())
         val useCase = Resolver.resolve(document, "support_reply")
         val request = useCase.request(mapOf("question" to "pricing", "plan" to "pro"))
 
-        assertEquals(9, document.schemaVersion)
+        assertEquals(1, document.schemaVersion)
         assertEquals("support_reply", useCase.key)
         assertEquals("openrouter", useCase.provider)
         assertEquals("anthropic/claude-sonnet-4", useCase.model)
@@ -229,8 +229,8 @@ class ReadableSchemaTest {
     }
 
     @Test
-    fun `schema 9 single prompt Decision documents prepare Decision requests`() {
-        val document = UseCaseDocument.parse(schemaNineDecision())
+    fun `single detail single prompt Decision documents prepare Decision requests`() {
+        val document = UseCaseDocument.parse(singleDetailDecision())
         val useCase = Resolver.resolve(document, "decision_triage")
         val request =
             useCase.request(
@@ -258,16 +258,16 @@ class ReadableSchemaTest {
     }
 
     @Test
-    fun `schema 9 rejects incomplete mixed or mismatched single prompt documents`() {
+    fun `single detail rejects incomplete mixed or mismatched single prompt documents`() {
         assertFailsWith<PromptOnException> {
             UseCaseDocument.parse(
-                """{"schema_version": 9, "project": "p", "environment": "production", "prompts": {}}""",
+                """{"schema_version": 1, "project": "p", "environment": "production", "prompts": {}}""",
             )
         }
         assertFailsWith<PromptOnException> {
             UseCaseDocument.parse(
                 """
-                {"schema_version": 9, "project": "p", "environment": "production",
+                {"schema_version": 1, "project": "p", "environment": "production",
                  "prompt": {"key": "greeting", "kind": "chat"},
                  "deployment": {"provider": "openrouter", "model": "m", "prompt_version": 2},
                  "prompt_version": {"prompt": "other", "number": 2, "kind": "chat", "engine": "liquid",
@@ -279,7 +279,7 @@ class ReadableSchemaTest {
         assertFailsWith<PromptOnException> {
             UseCaseDocument.parse(
                 """
-                {"schema_version": 9, "project": "p", "environment": "production",
+                {"schema_version": 1, "project": "p", "environment": "production",
                  "prompt": {"key": "greeting", "kind": "chat"},
                  "deployment": {"provider": "openrouter", "model": "m", "prompt_version": 3},
                  "prompt_version": {"prompt": "greeting", "number": 2, "kind": "chat", "engine": "liquid",
@@ -291,7 +291,7 @@ class ReadableSchemaTest {
         assertFailsWith<PromptOnException> {
             UseCaseDocument.parse(
                 """
-                {"schema_version": 9, "project": "p", "environment": "production",
+                {"schema_version": 1, "project": "p", "environment": "production",
                  "prompt": {"key": "greeting", "kind": "chat"},
                  "deployment": {"provider": "openrouter", "model": "m", "prompt_version": 2},
                  "prompt_version": {"prompt": "greeting", "number": 2, "kind": "chat", "engine": "liquid",
@@ -302,11 +302,11 @@ class ReadableSchemaTest {
         }
     }
 
-    private fun schemaNineChat(): String =
+    private fun singleDetailChat(): String =
         """
-        {"schema_version":9,"project":"heydiary-10242","environment":"production",
+        {"schema_version":1,"project":"heydiary-10242","environment":"production",
          "prompt":{"key":"support_reply","kind":"chat",
-                   "input_schema":[{"name":"plan","required":false,"type":"string"},
+                   "variables":[{"name":"plan","required":false,"type":"string"},
                                    {"name":"question","required":false,"type":"string"}],
                    "default_params":{},"payload_policy":{"mode":"full","sample_rate":1.0,
                    "max_bytes":262144,"retention_days":30,"encrypt":true}},
@@ -323,11 +323,11 @@ class ReadableSchemaTest {
                   "provider_options":{},"capabilities":["tools","streaming"],"status":"active"}}
         """.trimIndent()
 
-    private fun schemaNineDecision(): String =
+    private fun singleDetailDecision(): String =
         """
-        {"schema_version":9,"project":"heydiary-10242","environment":"production",
+        {"schema_version":1,"project":"heydiary-10242","environment":"production",
          "prompt":{"key":"decision_triage","kind":"decision",
-                   "input_schema":[{"name":"plan","required":false,"type":"string"},
+                   "variables":[{"name":"plan","required":false,"type":"string"},
                                    {"name":"region","required":false,"type":"string"},
                                    {"name":"ticket","required":false,"type":"string"}],
                    "default_params":{},"payload_policy":{"mode":"full","sample_rate":1.0,

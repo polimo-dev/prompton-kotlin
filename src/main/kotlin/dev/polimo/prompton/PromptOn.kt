@@ -895,7 +895,7 @@ public class PromptOn internal constructor(
                     )
                 },
             textTemplate = server.text,
-            inputSchema = emptyList(),
+            variables = emptyList(),
             payloadPolicy = policyFor(server.key),
             source = server.source ?: UseCaseSource.REMOTE,
             etag = server.etag,

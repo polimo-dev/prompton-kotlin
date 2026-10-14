@@ -7,22 +7,26 @@ import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/** Optional check against server-captured flat schema-v9 fixtures. */
+/** Optional check against server-captured schema-v1 fixtures. */
 class ActualRoundtripFixtureTest {
     private val fixtures: Path =
         Path.of(
             System.getProperty(
                 "promptonRoundtripFixtures",
-                "/Users/ys/ws/.omx/artifacts/single-prompt-20261014/roundtrip",
+                System.getenv("PROMPTON_ROUNDTRIP_FIXTURES") ?: "build/roundtrip-fixtures",
             ),
         )
 
     @Test
-    fun `decodes actual flat schema 9 chat and matches server render request`() {
-        assumeTrue(Files.isDirectory(fixtures))
+    fun `decodes actual flat single detail chat and matches server render request`() {
+        assumeTrue(
+            listOf("chat-detail.json", "chat-variables.json", "chat-render.json").all {
+                Files.isRegularFile(fixtures.resolve(it))
+            },
+        )
         val useCase =
             Resolver.resolve(
-                UseCaseDocument.parse(Files.readString(fixtures.resolve("chat-config.json"))),
+                UseCaseDocument.parse(Files.readString(fixtures.resolve("chat-detail.json"))),
                 "support_reply",
             )
         val request = useCase.request(readMap("chat-variables.json"))
@@ -34,11 +38,15 @@ class ActualRoundtripFixtureTest {
     }
 
     @Test
-    fun `decodes actual flat schema 9 Decision and matches server render request`() {
-        assumeTrue(Files.isDirectory(fixtures))
+    fun `decodes actual flat single detail Decision and matches server render request`() {
+        assumeTrue(
+            listOf("decision-detail.json", "decision-variables.json", "decision-render.json").all {
+                Files.isRegularFile(fixtures.resolve(it))
+            },
+        )
         val useCase =
             Resolver.resolve(
-                UseCaseDocument.parse(Files.readString(fixtures.resolve("decision-config.json"))),
+                UseCaseDocument.parse(Files.readString(fixtures.resolve("decision-detail.json"))),
                 "decision_triage",
             )
         val request = useCase.request(readMap("decision-variables.json"))
