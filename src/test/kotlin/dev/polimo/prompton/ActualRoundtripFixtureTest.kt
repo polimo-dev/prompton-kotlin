@@ -24,12 +24,12 @@ class ActualRoundtripFixtureTest {
                 Files.isRegularFile(fixtures.resolve(it))
             },
         )
-        val useCase =
+        val prompt =
             Resolver.resolve(
-                UseCaseDocument.parse(Files.readString(fixtures.resolve("chat-detail.json"))),
+                PromptDocument.parse(Files.readString(fixtures.resolve("chat-detail.json"))),
                 "support_reply",
             )
-        val request = useCase.request(readMap("chat-variables.json"))
+        val request = prompt.request(readMap("chat-variables.json"))
         val expected = (readMap("chat-render.json")["request"] as Map<*, *>)["body"]
 
         assertEquals("chat_completions", request.api)
@@ -44,12 +44,12 @@ class ActualRoundtripFixtureTest {
                 Files.isRegularFile(fixtures.resolve(it))
             },
         )
-        val useCase =
+        val prompt =
             Resolver.resolve(
-                UseCaseDocument.parse(Files.readString(fixtures.resolve("decision-detail.json"))),
+                PromptDocument.parse(Files.readString(fixtures.resolve("decision-detail.json"))),
                 "decision_triage",
             )
-        val request = useCase.request(readMap("decision-variables.json"))
+        val request = prompt.request(readMap("decision-variables.json"))
         val expected = (readMap("decision-render.json")["request"] as Map<*, *>)["body"]
 
         assertEquals("decisions", request.api)

@@ -19,7 +19,7 @@ class VariablesContractTest {
 
     @Test
     fun `schema one detail renders`() {
-        val doc = UseCaseDocument.parse(detail)
+        val doc = PromptDocument.parse(detail)
         assertEquals(1, doc.schemaVersion)
         assertEquals(
             "Hello Ada",
@@ -30,21 +30,21 @@ class VariablesContractTest {
                 .content,
         )
         val definition = VariableDefinition("name", "string", true, "Display name", "Ada")
-        assertEquals(listOf(definition), doc.useCases.getValue("hello").variables)
+        assertEquals(listOf(definition), doc.prompts.getValue("hello").variables)
         assertEquals(listOf(definition), Resolver.resolve(doc, "hello").variables)
         assertEquals(detail, doc.toJson())
     }
 
     @Test
     fun `old metadata is not an alias and empty variables stay empty`() {
-        val old = UseCaseDocument.parse(detail.replace("\"variables\"", "\"input_schema\""))
-        assertEquals(emptyList(), old.useCases.getValue("hello").variables)
+        val old = PromptDocument.parse(detail.replace("\"variables\"", "\"input_schema\""))
+        assertEquals(emptyList(), old.prompts.getValue("hello").variables)
         val empty = detail.replace(Regex("(?s)\"variables\":\\[.*?]"), "\"variables\":[]")
         assertEquals(
             emptyList(),
-            UseCaseDocument
+            PromptDocument
                 .parse(empty)
-                .useCases
+                .prompts
                 .getValue("hello")
                 .variables,
         )
@@ -64,14 +64,14 @@ class VariablesContractTest {
                 "models" to JsonObject(mapOf("openrouter:m" to root.getValue("model"))),
             ),
         ).toString()
-        val doc = UseCaseDocument.parse(bundle)
+        val doc = PromptDocument.parse(bundle)
         assertEquals(
-            UseCaseDocument
+            PromptDocument
                 .parse(detail)
-                .useCases
+                .prompts
                 .getValue("hello")
                 .variables,
-            doc.useCases.getValue("hello").variables,
+            doc.prompts.getValue("hello").variables,
         )
         assertEquals(bundle, doc.toJson())
     }
@@ -80,7 +80,7 @@ class VariablesContractTest {
     fun `only integer schema one is accepted`() {
         for (value in listOf("\"1\"", "1.0", "true", "null")) {
             assertFailsWith<PromptOnException> {
-                UseCaseDocument.parse(detail.replace("\"schema_version\":1", "\"schema_version\":$value"))
+                PromptDocument.parse(detail.replace("\"schema_version\":1", "\"schema_version\":$value"))
             }
         }
     }
@@ -89,7 +89,7 @@ class VariablesContractTest {
     fun `rejects every previous schema version`() {
         for (version in listOf(0, 2, 3, 4, 5, 6, 7, 8, 9, 10)) {
             assertFailsWith<PromptOnException> {
-                UseCaseDocument.parse(detail.replace("\"schema_version\":1", "\"schema_version\":$version"))
+                PromptDocument.parse(detail.replace("\"schema_version\":1", "\"schema_version\":$version"))
             }
         }
     }
@@ -98,7 +98,7 @@ class VariablesContractTest {
     fun `discovery index is not configuration`() {
         for (entries in listOf("[]", "[{\"key\":\"hello\",\"kind\":\"chat\"}]")) {
             assertFailsWith<PromptOnException> {
-                UseCaseDocument.parse(
+                PromptDocument.parse(
                     "{\"schema_version\":1,\"project\":\"p\",\"environment\":\"production\",\"prompts\":$entries}",
                 )
             }

@@ -43,7 +43,7 @@ class PreviewHttpContractIT {
             val variables = variables()
             val appHistory = appHistory()
 
-            val local = prompton.useCase(key)
+            val local = prompton.prompt(key)
             assertEquals(key, local.key)
             val managedMessages = local.messages(variables)
             assertProviderPayload(expectedRender, managedMessages, local.params)

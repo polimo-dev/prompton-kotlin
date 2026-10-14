@@ -1,7 +1,7 @@
 package dev.polimo.prompton.internal
 
-import dev.polimo.prompton.UseCaseDocument
-import dev.polimo.prompton.UseCaseSource
+import dev.polimo.prompton.PromptDocument
+import dev.polimo.prompton.PromptSource
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.IOException
@@ -13,10 +13,10 @@ import java.time.Instant
 
 /** One prompt document plus where it came from and when it was last confirmed current. */
 internal data class SnapshotEntry(
-    val document: UseCaseDocument,
+    val document: PromptDocument,
     val etag: String?,
     val lastModified: String?,
-    val source: UseCaseSource,
+    val source: PromptSource,
     /** When this document's bytes were received. */
     val fetchedAt: Instant,
     /** When the server last confirmed the document is current (a 200 or a 304). */
@@ -39,7 +39,7 @@ internal object SnapshotFiles {
 
     fun read(
         path: Path,
-        source: UseCaseSource,
+        source: PromptSource,
         expectedEnvironment: String,
         expectedProject: String?,
     ): SnapshotEntry? {
@@ -54,7 +54,7 @@ internal object SnapshotFiles {
 
         val document =
             try {
-                UseCaseDocument.parse(body)
+                PromptDocument.parse(body)
             } catch (e: RuntimeException) {
                 PtnLog.warn("[PromptOn] ignoring an unreadable ${source.wire} prompt document at $path: ${e.message}")
                 return null

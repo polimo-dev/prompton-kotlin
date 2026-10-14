@@ -10,7 +10,7 @@ public class UnsupportedSchemaVersionException(
     public val schemaVersion: Int,
 ) : PromptOnException(
         "unsupported prompt document schema_version $schemaVersion; " +
-            "this SDK reads version ${UseCaseDocument.SCHEMA_VERSION}",
+            "this SDK reads version ${PromptDocument.SCHEMA_VERSION}",
     )
 
 /**
@@ -18,11 +18,11 @@ public class UnsupportedSchemaVersionException(
  *
  * Only schema version 1 is accepted; detail responses and offline bundles are distinguished by shape.
  */
-public class UseCaseDocument internal constructor(
+public class PromptDocument internal constructor(
     public val schemaVersion: Int,
     public val project: String?,
     public val environment: String?,
-    public val useCases: Map<String, UseCaseEntry>,
+    public val prompts: Map<String, PromptEntry>,
     public val deployments: Map<String, Deployment>,
     public val promptVersions: Map<String, PromptVersion>,
     public val models: Map<String, ModelEntry>,
@@ -30,10 +30,10 @@ public class UseCaseDocument internal constructor(
     /** The exact bytes the document was decoded from, mirrored to the disk cache unchanged. */
     internal val source: String,
 ) {
-    /** The prompt names the live deployment of [useCaseKey] pins, sorted. */
-    public fun promptNames(useCaseKey: String): List<String> =
-        deployments[useCaseKey]
-            ?.promptPins
+    /** The template names the live deployment of [promptKey] pins, sorted. */
+    public fun templateNames(promptKey: String): List<String> =
+        deployments[promptKey]
+            ?.templatePins
             ?.keys
             ?.sorted()
             .orEmpty()
@@ -45,12 +45,12 @@ public class UseCaseDocument internal constructor(
         public const val SCHEMA_VERSION: Int = 1
 
         /** Decodes a PromptOn prompt document body. */
-        public fun parse(json: String): UseCaseDocument = decode(Ptn.parseObject(json), json)
+        public fun parse(json: String): PromptDocument = decode(Ptn.parseObject(json), json)
 
         internal fun decode(
             root: JsonObject,
             source: String,
-        ): UseCaseDocument {
+        ): PromptDocument {
             val warnings = mutableListOf<String>()
             val schemaVersion =
                 schemaVersionOf(root["schema_version"])
@@ -59,7 +59,7 @@ public class UseCaseDocument internal constructor(
             val singular = listOf("prompt", "deployment", "prompt_version", "model").any(root::containsKey)
             val normalized = if (singular) normalizeSingleDocument(root) else root
 
-            val useCasesRaw =
+            val promptsRaw =
                 Ptn.asObject(normalized["prompts"])
                     ?: throw PromptOnException(
                         "prompt document requires keyed prompts; a discovery index is not configuration",
@@ -70,9 +70,9 @@ public class UseCaseDocument internal constructor(
                 }
             }
 
-            val useCases =
-                useCasesRaw.entries.associate { (key, value) ->
-                    key to decodeUseCase(key, Ptn.asObject(value), warnings)
+            val prompts =
+                promptsRaw.entries.associate { (key, value) ->
+                    key to decodePrompt(key, Ptn.asObject(value), warnings)
                 }
 
             val deployments =
@@ -102,11 +102,11 @@ public class UseCaseDocument internal constructor(
                     }?.toMap()
                     .orEmpty()
 
-            return UseCaseDocument(
+            return PromptDocument(
                 schemaVersion = schemaVersion,
                 project = Ptn.asString(normalized["project"]),
                 environment = Ptn.asString(normalized["environment"]),
-                useCases = useCases,
+                prompts = prompts,
                 deployments = deployments,
                 promptVersions = promptVersions,
                 models = models,
@@ -171,19 +171,19 @@ public class UseCaseDocument internal constructor(
             return value.content.toIntOrNull()
         }
 
-        private fun decodeUseCase(
+        private fun decodePrompt(
             key: String,
             raw: JsonObject?,
             warnings: MutableList<String>,
-        ): UseCaseEntry {
+        ): PromptEntry {
             val kindText = Ptn.asString(raw?.get("kind"))
-            if (kindText != null && UseCaseKind.entries.none { it.wire == kindText }) {
+            if (kindText != null && PromptKind.entries.none { it.wire == kindText }) {
                 warnings += "unknown_kind: $kindText"
             }
-            return UseCaseEntry(
+            return PromptEntry(
                 id = null,
                 key = key,
-                kind = UseCaseKind.fromWire(kindText),
+                kind = PromptKind.fromWire(kindText),
                 variables = decodeVariables(raw),
                 defaultParams = nativeMap(raw?.get("default_params")),
                 payloadPolicy = decodePayloadPolicy(Ptn.asObject(raw?.get("payload_policy"))),
@@ -223,7 +223,7 @@ public class UseCaseDocument internal constructor(
         ): Deployment =
             Deployment(
                 id = null,
-                useCaseKey = key,
+                promptKey = key,
                 revision = revisionOf(raw?.get("revision")),
                 modelId = readableModelKey(
                     requiredString(raw, "provider", "deployment provider"),
@@ -233,32 +233,33 @@ public class UseCaseDocument internal constructor(
                 requestPath = Ptn.asString(raw?.get("request_path")),
                 params = nativeMap(raw?.get("params")),
                 providerOptions = nativeMap(raw?.get("provider_options")),
-                promptPins = mapOf(
+                templatePins = mapOf(
                     "default" to "$key@${strictPositiveInt(raw?.get("prompt_version"), "deployment prompt_version")}",
                 ),
             )
 
-        private fun revisionOf(value: JsonElement?): String? {
-            if (value == null || value is kotlinx.serialization.json.JsonNull) return null
-            if (value is JsonPrimitive && value.isString) return value.content
-            throw PromptOnException("deployment revision must be a string")
-        }
+        private fun revisionOf(value: JsonElement?): String? =
+            when {
+                value == null || value is kotlinx.serialization.json.JsonNull -> null
+                value is JsonPrimitive && value.isString -> value.content
+                else -> throw PromptOnException("deployment revision must be a string")
+            }
 
         private fun decodePromptVersion(
             id: String,
             raw: JsonObject,
         ): PromptVersion {
-            val promptId = requiredString(raw, "prompt", "prompt version prompt")
+            val promptTemplateId = requiredString(raw, "prompt", "prompt version prompt")
             val number = strictPositiveInt(raw["number"], "prompt version number")
-            val expectedId = "$promptId@$number"
+            val expectedId = "$promptTemplateId@$number"
             if (id != expectedId) {
                 throw PromptOnException("prompt version key $id must match embedded prompt and number $expectedId")
             }
             return PromptVersion(
                 id = id,
-                promptId = promptId,
+                promptTemplateId = promptTemplateId,
                 number = number,
-                kind = UseCaseKind.fromWireOrNull(Ptn.asString(raw["kind"])),
+                kind = PromptKind.fromWireOrNull(Ptn.asString(raw["kind"])),
                 engine = TemplateEngine.fromWire(Ptn.asString(raw["engine"])),
                 messages =
                     Ptn.asArray(raw["messages"])?.mapNotNull { element ->

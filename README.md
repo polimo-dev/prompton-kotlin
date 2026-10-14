@@ -11,12 +11,12 @@ the request path and never sees your provider key. If PromptOn is down your app 
 last prompt document it received.
 
 ```
-useCase("greeting")        ──▶  UseCase(model, params, provider options, pinned prompt)
-useCase.messages(vars)     ──▶  messages PromptOn manages
-useCase.text(vars)         ──▶  text prompt
-useCase.decision(vars)     ──▶  Decision state/questions
-useCase.request(vars)      ──▶  provider request body for Chat or Decision
-useCase.track(meta) { … }  ──▶  monitoring log, sent in batches
+prompt("greeting")        ──▶  Prompt(model, params, provider options, pinned prompt)
+prompt.messages(vars)     ──▶  messages PromptOn manages
+prompt.text(vars)         ──▶  text prompt
+prompt.decision(vars)     ──▶  Decision state/questions
+prompt.request(vars)      ──▶  provider request body for Chat or Decision
+prompt.track(meta) { … }  ──▶  monitoring log, sent in batches
 ```
 
 - Kotlin 2.x on JVM 17 or newer, `java.net.http` for HTTP, `kotlinx.serialization` for JSON.
@@ -46,21 +46,21 @@ dependencies {
 
 ```kotlin
 val prompton = PromptOn() // reads PTN_HOST and PTN_API_KEY
-val useCase = prompton.useCase("greeting") // memory-cached, no HTTP on this path
+val prompt = prompton.prompt("greeting") // memory-cached, no HTTP on this path
 val variables = mapOf("name" to "Ada")
-val managedMessages = useCase.messages(variables)
+val managedMessages = prompt.messages(variables)
 val finalMessages = managedMessages + conversationHistory + PromptMessage(role = "user", content = userText)
 
-val answer = useCase.trackBlocking(
+val answer = prompt.trackBlocking(
     TrackMeta(variables = variables, inputMessages = finalMessages),
 ) { call ->
-    val reply = myOpenAiClient.chat(useCase.model!!, finalMessages, useCase.params)
+    val reply = myOpenAiClient.chat(prompt.model!!, finalMessages, prompt.params)
     call.result(Result.fromOpenAI(reply))
     reply.text
 }
 ```
 
-`track` is the suspending twin of `trackBlocking`; so are `flush`, `useCaseRemote` and
+`track` is the suspending twin of `trackBlocking`; so are `flush`, `promptRemote` and
 `promptOnServer`. Close the instance on shutdown (`prompton.close()`) so the log queue drains.
 
 For native Decision prompts, render the Decision payload and prepare the provider request from the
@@ -68,11 +68,11 @@ pinned model, path, state and questions:
 
 ```kotlin
 val prompton = PromptOn()
-val useCase = prompton.useCase("sentiment")
+val prompt = prompton.prompt("sentiment")
 val variables = mapOf("diary" to "The launch went well.")
 
-val decision = useCase.decision(variables)
-val request = useCase.request(
+val decision = prompt.decision(variables)
+val request = prompt.request(
     variables,
     PreparedRequestOptions(
         sessionId = "session-1",
@@ -81,7 +81,7 @@ val request = useCase.request(
     ),
 )
 
-useCase.trackBlocking(TrackMeta(variables = variables, inputDecision = decision)) { call ->
+prompt.trackBlocking(TrackMeta(variables = variables, inputDecision = decision)) { call ->
     val raw = myDecisionsClient.post(request.path, request.body)
     call.result(Result.fromDecisions(raw))
     raw
@@ -146,30 +146,29 @@ Config is stale in the worst case, not absent.
 
 ```
 start      memory → disk cache → bundle, with no remote call
-useCase    if the key is stale or missing: GET /prompts/{key}?environment=…
+prompt    if the key is stale or missing: GET /prompts/{key}?environment=…
 deadline   one second total; no retry
 failure    keep serving the last valid value, even expired
 ```
 
-- Inside the fixed 10-second config TTL every `useCase` call is a map lookup with no HTTP at all.
+- Inside the fixed 10-second config TTL every `prompt` call is a map lookup with no HTTP at all.
 - After that fixed TTL, callers for the same key share one in-flight config fetch and its original deadline.
   Other keys are independent and are not serialized behind a slow key.
 - A failed config attempt, including timeout, invalid payload or scope mismatch, starts the same
-  10-second per-key gate. With no cached value, the SDK raises `UseCaseDocumentUnavailableException`.
+  10-second per-key gate. With no cached value, the SDK raises `PromptDocumentUnavailableException`.
 - Fetched prompt documents are mirrored atomically to disk, with a metadata sidecar holding ETag,
   `Last-Modified`, project and environment.
-- Commit `prompts.<environment>.json` (write it with `prompton.exportUseCaseDocument(path)`) and
+- Commit `prompts.<environment>.json` (write it with `prompton.exportPromptDocument(path)`) and
   point `bundlePath` at it for cold starts without network.
 - A document for another environment, another project, or an unsupported `schema_version` is refused
   with a warning.
-- With no usable tier at all, the SDK raises `UseCaseDocumentUnavailableException`.
+- With no usable tier at all, the SDK raises `PromptDocumentUnavailableException`.
 
-`prompton.useCaseDocumentInfo()` reports the most recently served document — ETag, source, age and
+`prompton.promptDocumentInfo()` reports the most recently served document — ETag, source, age and
 whether it is stale. `refreshBlocking` is kept only as a compatibility method and does not restore
 bulk config polling.
 
-`prompton.useCaseRemoteBlocking(useCase)` uses `/prompts/{key}/render`, caches the answer per use
-case, prompt and environment for the cache TTL, and follows the same `Retry-After`/backoff rules.
+`prompton.promptRemoteBlocking(promptKey)` uses `/prompts/{key}/render`, caches the answer per prompt, template and environment for the cache TTL, and follows the same `Retry-After`/backoff rules.
 
 ## How it fails
 
@@ -182,12 +181,12 @@ case, prompt and environment for the cache TTL, and follows the same `Retry-Afte
 | Config fetch returns `5xx`, times out, DNS fails | Keeps serving and gates the next config attempt for the fixed 10 s window | Nothing; the document is marked stale |
 | `/prompts/{key}/render` answers `429` or `5xx`, or is unreachable | Serves the cached answer and waits out `Retry-After` or the backoff | The previous answer; with nothing cached, a `PromptOnException` |
 | Server unreachable at start-up | Loads disk, then bundle | The cached configuration, `source` `disk` or `bundle` |
-| Use case document for the wrong environment or project | Refuses it, logs a warning, keeps looking | The next tier, or `UseCaseDocumentUnavailableException` |
+| Prompt document for the wrong environment or project | Refuses it, logs a warning, keeps looking | The next tier, or `PromptDocumentUnavailableException` |
 | Corrupt or half-written cache file | Ignores it | The next tier |
-| No tier has a document | Fails loudly | `UseCaseDocumentUnavailableException` |
-| Unknown prompt key | Fails loudly | `UnknownUseCaseException` |
-| Use case with no live deployment | Fails loudly | `UnresolvedUseCaseException` |
-| Prompt name the revision does not pin | Fails loudly, never falls back to `default` | `UnknownPromptException` with `promptNames` |
+| No tier has a document | Fails loudly | `PromptDocumentUnavailableException` |
+| Unknown prompt key | Fails loudly | `UnknownPromptException` |
+| Prompt with no live deployment | Fails loudly | `UnresolvedPromptException` |
+| Prompt name the revision does not pin | Fails loudly, never falls back to `default` | `UnknownPromptException` with `templateNames` |
 | A variable the template needs is missing | Fails loudly | `MissingVariableException` with the name |
 | No API key configured | Makes no remote call; logs it once | Disk or bundle configuration; monitoring logs are dropped |
 | Monitoring log queue full | Drops the oldest and counts them | Nothing; `logStats().dropped` grows |
@@ -201,13 +200,13 @@ unpinned prompt name is a bug in the deployment or the call. Fail that call loud
 
 ## Prompt templates
 
-`useCase.variables` exposes the prompt's `VariableDefinition` entries: `name`, `type`, `required`,
+`prompt.variables` exposes the prompt's `VariableDefinition` entries: `name`, `type`, `required`,
 `description`, and `example`. The `variables` map supplied to rendering and logging still holds
 per-call values.
 
 Only schema version 1 is accepted, as a singular detail response or a keyed offline bundle.
 `GET /api/v1/prompts` lists prompt keys and kinds; fetch `GET /api/v1/prompts/{key}` for configuration.
-The index array cannot be loaded as configuration. `exportUseCaseDocument` writes the most recently
+The index array cannot be loaded as configuration. `exportPromptDocument` writes the most recently
 served document and its original ETag metadata without fetching or combining other prompts.
 
 The pinned prompt is a Liquid subset, rendered locally:
@@ -228,14 +227,14 @@ developer instructions. Conversation history and the current user message belong
 
 ```kotlin
 val variables = mapOf("locale" to "ko-KR")
-val managedMessages = useCase.messages(variables)
+val managedMessages = prompt.messages(variables)
 val finalMessages =
     managedMessages +
         loadConversationHistory(conversationId) +
         PromptMessage(role = "user", content = userText)
 
-val reply = myOpenAiClient.chat(useCase.model!!, finalMessages, useCase.params)
-useCase.trackBlocking(TrackMeta(variables = variables, inputMessages = finalMessages)) {
+val reply = myOpenAiClient.chat(prompt.model!!, finalMessages, prompt.params)
+prompt.trackBlocking(TrackMeta(variables = variables, inputMessages = finalMessages)) {
     it.result(Result(content = reply.text))
     reply.text
 }
@@ -248,10 +247,10 @@ Three entry points:
 ```kotlin
 prompton.log(record)                              // enqueue one record you built yourself
 prompton.flushBlocking()                          // send now and wait — shutdown, tests, scripts
-useCase.trackBlocking(meta) { call -> … }         // time a provider call and log it
+prompt.trackBlocking(meta) { call -> … }         // time a provider call and log it
 ```
 
-`log` validates `useCase`, `model`, `status` and `startedAt`, fills in a UUIDv7 `id` and the `sdk`
+`log` validates `prompt`, `model`, `status` and `startedAt`, fills in a UUIDv7 `id` and the `sdk`
 block, applies the payload policy, and returns immediately. Behind it a buffer batches on size, time
 or bytes, sends at most 200 records and 4 MB per request under `{"logs": [...]}`, one batch per
 environment, and retries the same ids on `429` and `5xx`.
@@ -286,7 +285,7 @@ extract common content, finish-reason, usage-token and model fields from provide
 
 ```kotlin
 val prompton = PromptOn(PromptOnConfig(mode = PromptOnMode.TEST))
-prompton.putUseCaseDocument(File("prompts.production.json").readText())
+prompton.putPromptDocument(File("prompts.production.json").readText())
 
 myService.greet("Ada")
 

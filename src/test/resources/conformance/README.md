@@ -23,7 +23,7 @@ Each file records the commit it was generated from in `generated_from.commit`.
 | File | What it pins down | Cases |
 |---|---|---|
 | `template.json` | Prompt rendering: the Liquid subset PromptOn allows | 72 render (4 non-normative), 10 lint, 5 detected-variables |
-| `prompt.json` | Use case document + prompt (+ prompt name) → model, params, prompt version, rendered messages | 3 documents, 16 cases |
+| `prompt.json` | Prompt document + prompt (+ template name) → model, params, prompt version, rendered messages | 3 documents, 16 cases |
 | `truncation.json` | The payload policy the SDK applies to a monitoring log before sending it | 19 cases + 5 sampling buckets |
 | `stop_kind.json` | Provider `finish_reason` → PromptOn `stop_kind` | 22 cases |
 | `log_record.json` | Complete monitoring-log records and the batch envelope | 5 records |
@@ -55,7 +55,7 @@ the prompt version is committed, so a template that fails lint can never reach a
 `documents` maps reference names to complete schema-1 offline bundles with keyed resource maps.
 The HTTP list endpoint returns only keys and kinds; configuration comes from the singular
 `GET /api/v1/prompts/{key}?environment=…` endpoint. For each case, decode
-`documents[document_ref]`, use_case `prompt_key` with the optional `prompt` name, and — when
+`documents[document_ref]`, prompt_key `prompt_key` with the optional `template` name, and — when
 `variables` is present — render the resulting prompt. This is precisely what `POST /api/v1/prompts/{key}/render`
 does on the server.
 
@@ -131,7 +131,7 @@ genuinely contains `{{` or `{%`.
 ### Merge order
 
 ```
-params            = use_case.default_params  <- deployment.params
+params            = prompt.default_params  <- deployment.params
 provider_options  = model.provider_options   <- deployment.provider_options
 ```
 
@@ -139,19 +139,19 @@ Both are **shallow** merges where the right side wins. A nested map on the right
 side whole; it is not merged into it. An override value of `null` is kept as `null`, not deleted —
 apps rely on sending `"only": null` to clear a provider restriction.
 
-### Use case selection
+### Prompt selection
 
 A deployment revision is a **pin**, not a router. It is one model plus one pinned prompt version
-per prompt name. At request time the only selection axis is the prompt name (default `"default"`),
+per template name. At request time the only selection axis is the template name (default `"default"`),
 and the environment is a request parameter that decides which prompt document you fetched.
 
-* Unknown prompt key → `unknown_use_case`.
-* Use case exists but has no deployment in this environment → `unresolved`.
-* The deployment pins no version under the requested name → `unknown_prompt`. **There is no
+* Unknown prompt key → `unknown_template`.
+* Prompt exists but has no deployment in this environment → `unresolved`.
+* The deployment pins no version under the requested name → `unknown_template`. **There is no
   fallback to `"default"`**: shipping English to a request that asked for `"ko"` is worse than an
-  error. The expectation carries `prompt_names`, which is what the server's 404 lists.
-* Use case of kind `embedding` has no prompt at all: `prompt` and `prompt_version` are `null`, and
-  a prompt name passed with the request is ignored rather than rejected.
+  error. The expectation carries `template_names`, which is what the server's 404 lists.
+* Prompt of kind `embedding` has no prompt at all: `prompt` and `prompt_version` are `null`, and
+  a template name passed with the request is ignored rather than rejected.
 * If the prompt document references a prompt version or model id it does not contain, selection
   still succeeds with those fields `null` and a warning. A healthy server never emits such a
   document.

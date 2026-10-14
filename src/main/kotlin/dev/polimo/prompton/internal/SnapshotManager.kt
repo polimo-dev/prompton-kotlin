@@ -3,11 +3,11 @@ package dev.polimo.prompton.internal
 import dev.polimo.prompton.HttpRequest
 import dev.polimo.prompton.HttpResponse
 import dev.polimo.prompton.HttpTransport
+import dev.polimo.prompton.PromptDocument
+import dev.polimo.prompton.PromptDocumentUnavailableException
 import dev.polimo.prompton.PromptOnConfig
 import dev.polimo.prompton.PromptOnMode
-import dev.polimo.prompton.UseCaseDocument
-import dev.polimo.prompton.UseCaseDocumentUnavailableException
-import dev.polimo.prompton.UseCaseSource
+import dev.polimo.prompton.PromptSource
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -121,8 +121,8 @@ internal class SnapshotManager(
     fun refreshNow(force: Boolean = false): Boolean = currentOrNull() != null
 
     fun putDocument(
-        document: UseCaseDocument,
-        source: UseCaseSource,
+        document: PromptDocument,
+        source: PromptSource,
         etag: String? = null,
     ) {
         val now = clock.now()
@@ -134,7 +134,7 @@ internal class SnapshotManager(
                 source = source,
                 fetchedAt = now,
                 validatedAt = now,
-                staleSince = if (source == UseCaseSource.REMOTE) null else now,
+                staleSince = if (source == PromptSource.REMOTE) null else now,
             )
         localDocument.set(entry)
         lastServed.set(entry)
@@ -142,7 +142,7 @@ internal class SnapshotManager(
     }
 
     fun export(path: Path) {
-        val entry = lastServed.get() ?: throw UseCaseDocumentUnavailableException(config.environment)
+        val entry = lastServed.get() ?: throw PromptDocumentUnavailableException(config.environment)
         SnapshotFiles.write(path, entry.document.toJson(), metaOf(entry))
     }
 
@@ -155,14 +155,14 @@ internal class SnapshotManager(
             lastServed.set(it)
             return it
         }
-        throw UseCaseDocumentUnavailableException(config.environment)
+        throw PromptDocumentUnavailableException(config.environment)
     }
 
     private fun isFresh(
         entry: SnapshotEntry,
         now: Instant,
     ): Boolean =
-        entry.source == UseCaseSource.REMOTE &&
+        entry.source == PromptSource.REMOTE &&
             entry.staleSince == null &&
             JavaDuration.between(entry.validatedAt, now) < CONFIG_TTL.toJavaDuration()
 
@@ -278,7 +278,7 @@ internal class SnapshotManager(
                 } else {
                     FetchOutcome(
                         true,
-                        previous.copy(source = UseCaseSource.REMOTE, validatedAt = clock.now(), staleSince = null),
+                        previous.copy(source = PromptSource.REMOTE, validatedAt = clock.now(), staleSince = null),
                         null,
                         deadline,
                     )
@@ -296,7 +296,7 @@ internal class SnapshotManager(
     ): FetchOutcome {
         val document =
             try {
-                UseCaseDocument.parse(response.body)
+                PromptDocument.parse(response.body)
             } catch (e: RuntimeException) {
                 return FetchOutcome(false, null, "undecodable prompt document: ${e.message}", deadline)
             }
@@ -311,7 +311,7 @@ internal class SnapshotManager(
                 document = document,
                 etag = response.header("etag"),
                 lastModified = response.header("last-modified"),
-                source = UseCaseSource.REMOTE,
+                source = PromptSource.REMOTE,
                 fetchedAt = now,
                 validatedAt = now,
                 staleSince = null,
@@ -344,13 +344,13 @@ internal class SnapshotManager(
     }
 
     private fun localFor(key: String): SnapshotEntry? =
-        localDocument.get()?.takeIf { it.document.useCases.containsKey(key) }
+        localDocument.get()?.takeIf { it.document.prompts.containsKey(key) }
 
     private fun loadLocalTiers(): Boolean {
         val diskLoaded = config.resolvedDiskCachePath?.let { loadDiskEntries(it) } ?: false
         if (!diskLoaded) {
             config.resolvedDiskCachePath?.let { path ->
-                SnapshotFiles.read(path, UseCaseSource.DISK, config.environment, config.project)?.let { entry ->
+                SnapshotFiles.read(path, PromptSource.DISK, config.environment, config.project)?.let { entry ->
                     localDocument.set(entry)
                     lastServed.set(entry)
                     PtnLog.info("[PromptOn] loaded the prompt document from disk ($path), etag=${entry.etag}")
@@ -359,7 +359,7 @@ internal class SnapshotManager(
             }
         }
         config.bundlePath?.let { path ->
-            SnapshotFiles.read(path, UseCaseSource.BUNDLE, config.environment, config.project)?.let { entry ->
+            SnapshotFiles.read(path, PromptSource.BUNDLE, config.environment, config.project)?.let { entry ->
                 localDocument.set(entry)
                 lastServed.compareAndSet(null, entry)
                 PtnLog.info("[PromptOn] loaded the prompt document from bundle ($path), etag=${entry.etag}")
@@ -378,7 +378,7 @@ internal class SnapshotManager(
             val meta = Ptn.toNativeMap(entryObject["meta"])
             val document =
                 try {
-                    UseCaseDocument.parse(body)
+                    PromptDocument.parse(body)
                 } catch (_: RuntimeException) {
                     continue
                 }
@@ -393,7 +393,7 @@ internal class SnapshotManager(
                     document = document,
                     etag = meta["etag"] as? String,
                     lastModified = meta["last_modified"] as? String,
-                    source = UseCaseSource.DISK,
+                    source = PromptSource.DISK,
                     fetchedAt = fetchedAt,
                     validatedAt = fetchedAt,
                     staleSince = clock.now(),
@@ -408,7 +408,7 @@ internal class SnapshotManager(
     }
 
     private fun mismatch(
-        document: UseCaseDocument,
+        document: PromptDocument,
         requestedKey: String?,
     ): String? {
         if (document.environment != null && document.environment != config.environment) {
@@ -418,7 +418,7 @@ internal class SnapshotManager(
         if (config.project != null && document.project != null && document.project != config.project) {
             return "the server answered with project '${document.project}' but this process reads '${config.project}'"
         }
-        if (requestedKey != null && !document.useCases.containsKey(requestedKey)) {
+        if (requestedKey != null && !document.prompts.containsKey(requestedKey)) {
             return "the server answered without requested prompt '$requestedKey'"
         }
         return null

@@ -13,7 +13,7 @@ public enum class PromptOnMode {
     /** Normal operation: fetch requested prompt config on demand, cache to disk, send monitoring logs. */
     LIVE,
 
-    /** No HTTP at all. Use case documents are injected and monitoring logs are captured for assertions. */
+    /** No HTTP at all. Prompt documents are injected and monitoring logs are captured for assertions. */
     TEST,
 
     /** Disk cache and bundle only: nothing is fetched and nothing is sent. */

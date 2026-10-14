@@ -1,11 +1,11 @@
 package dev.polimo.prompton
 
-/** Use case documents the runtime tests fetch, cache and refuse. */
+/** Prompt documents the runtime tests fetch, cache and refuse. */
 object SnapshotFixtures {
     const val PRODUCTION_ETAG: String = "\"sha256-aaaa\""
     const val UPDATED_ETAG: String = "\"sha256-bbbb\""
 
-    fun useCaseDocument(
+    fun promptDocument(
         environment: String = "production",
         project: String = "fixture",
         temperature: Double = 0.2,
@@ -123,5 +123,5 @@ object SnapshotFixtures {
         }
         """.trimIndent()
 
-    fun twoUseCases(): String = useCaseDocument()
+    fun twoPrompts(): String = promptDocument()
 }

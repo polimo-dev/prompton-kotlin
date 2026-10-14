@@ -17,7 +17,7 @@ public data class PromptMessage
     )
 
 /** What a prompt asks the provider for. */
-public enum class UseCaseKind {
+public enum class PromptKind {
     CHAT,
     DECISION,
     TEXT,
@@ -27,15 +27,15 @@ public enum class UseCaseKind {
     public val wire: String get() = name.lowercase()
 
     public companion object {
-        public fun fromWire(value: String?): UseCaseKind = fromWireOrNull(value) ?: CHAT
+        public fun fromWire(value: String?): PromptKind = fromWireOrNull(value) ?: CHAT
 
-        public fun fromWireOrNull(value: String?): UseCaseKind? =
+        public fun fromWireOrNull(value: String?): PromptKind? =
             entries.firstOrNull { it.wire == value?.trim()?.lowercase() }
     }
 }
 
 /** Where the prompt document behind a call came from. */
-public enum class UseCaseSource {
+public enum class PromptSource {
     REMOTE,
     DISK,
     BUNDLE,
@@ -45,7 +45,7 @@ public enum class UseCaseSource {
     public val wire: String get() = name.lowercase()
 
     public companion object {
-        public fun fromWire(value: String?): UseCaseSource? =
+        public fun fromWire(value: String?): PromptSource? =
             entries.firstOrNull { it.wire == value?.trim()?.lowercase() }
     }
 }
@@ -94,34 +94,34 @@ public data class VariableDefinition
     )
 
 /** A prompt as the prompt document describes it. */
-public data class UseCaseEntry(
+public data class PromptEntry(
     val id: String?,
     val key: String,
-    val kind: UseCaseKind,
+    val kind: PromptKind,
     val variables: List<VariableDefinition>,
     val defaultParams: Map<String, Any?>,
     val payloadPolicy: PayloadPolicy?,
 )
 
-/** A live deployment revision: one model plus one pinned prompt version per prompt name. */
+/** A live deployment revision: one model plus one pinned prompt version per template name. */
 public data class Deployment(
     val id: String?,
-    val useCaseKey: String,
+    val promptKey: String,
     val revision: String?,
     val modelId: String?,
     val api: String? = null,
     val requestPath: String? = null,
     val params: Map<String, Any?>,
     val providerOptions: Map<String, Any?>,
-    val promptPins: Map<String, String>,
+    val templatePins: Map<String, String>,
 )
 
 /** An immutable prompt version. The [id] is a readable lookup key. */
 public data class PromptVersion(
     val id: String,
-    val promptId: String?,
+    val promptTemplateId: String?,
     val number: Int?,
-    val kind: UseCaseKind? = null,
+    val kind: PromptKind? = null,
     val engine: TemplateEngine,
     val messages: List<PromptMessage>?,
     val decision: DecisionTemplate? = null,
@@ -151,7 +151,7 @@ public data class PreparedRequest(
     val body: Map<String, Any?>,
 )
 
-/** Per-call overrides for [UseCase.request]. */
+/** Per-call overrides for [Prompt.request]. */
 public data class PreparedRequestOptions
     @JvmOverloads
     constructor(

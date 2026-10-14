@@ -11,9 +11,9 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * Read a use case, fill its prompt, call a provider, log what happened.
+ * Read a prompt, fill its prompt, call a provider, log what happened.
  *
- * Run it with `./gradlew :examples:run`. With `PTN_API_KEY` set it fetches the live use case document and
+ * Run it with `./gradlew :examples:run`. With `PTN_API_KEY` set it fetches the live prompt document and
  * sends the monitoring log; without one it runs offline on the committed
  * `examples/prompts.production.json` bundle — which is the same thing your app does when PromptOn
  * is unreachable.
@@ -34,16 +34,16 @@ fun main() {
         if (config.mode == PromptOnMode.LIVE) prompton.refreshBlocking()
 
         // 1. Which model, params and prompt version this call should use.
-        val useCase = prompton.useCase("greeting")
-        println("use case      : ${useCase.key} (${useCase.kind.wire})")
-        println("model         : ${useCase.model} via ${useCase.provider}")
-        println("params        : ${useCase.params}")
-        println("pin           : deployment ${useCase.deploymentRevision}, prompt '${useCase.prompt}'")
-        println("configuration : ${useCase.source.wire}")
+        val prompt = prompton.prompt("greeting")
+        println("prompt      : ${prompt.key} (${prompt.kind.wire})")
+        println("model         : ${prompt.model} via ${prompt.provider}")
+        println("params        : ${prompt.params}")
+        println("pin           : deployment ${prompt.deploymentRevision}, prompt '${prompt.template}'")
+        println("configuration : ${prompt.source.wire}")
 
         // 2. Render the messages PromptOn manages, then add the app-owned conversation state.
         val variables = mapOf("name" to "Ada")
-        val managedMessages = useCase.messages(variables)
+        val managedMessages = prompt.messages(variables)
         val messages =
             managedMessages +
                 listOf(
@@ -54,7 +54,7 @@ fun main() {
 
         // 3. Your provider, your key, your HTTP client. PromptOn is never in this path.
         val answer =
-            useCase.trackBlocking(
+            prompt.trackBlocking(
                 TrackMeta(
                     variables = variables,
                     inputMessages = messages,
@@ -63,13 +63,13 @@ fun main() {
                     context = mapOf("language" to "en"),
                 ),
             ) { call ->
-                val reply = fakeProvider(useCase.model.orEmpty(), messages)
+                val reply = fakeProvider(prompt.model.orEmpty(), messages)
                 call.result(
                     Result(
                         content = reply.content,
                         finishReason = reply.finishReason,
                         usage = Usage(inputTokens = reply.inputTokens, outputTokens = reply.outputTokens),
-                        modelUsed = useCase.model,
+                        modelUsed = prompt.model,
                     ),
                 )
                 reply.content
@@ -94,7 +94,7 @@ private fun fakeProvider(
     model: String,
     messages: List<PromptMessage>,
 ): FakeReply {
-    require(model.isNotBlank()) { "the use case document pinned no model" }
+    require(model.isNotBlank()) { "the prompt document pinned no model" }
     val name = messages.last().content.substringAfter("Say hello to ").removeSuffix(".")
     return FakeReply(
         content = "Hello, $name! Lovely to see you.",

@@ -10,7 +10,7 @@ class ReadableSchemaTest {
     @Test
     fun `offline bundle uses readable resource references without public ids`() {
         val document =
-            UseCaseDocument.parse(
+            PromptDocument.parse(
                 """
                 {"schema_version": 1, "project": "p", "environment": "production",
                  "prompts": {
@@ -60,14 +60,14 @@ class ReadableSchemaTest {
         assertNull(classify.promptVersionId)
         assertEquals(2, classify.promptVersionNumber)
         assertEquals("anthropic", classify.provider)
-        assertEquals(UseCaseKind.DECISION, classify.kind)
+        assertEquals(PromptKind.DECISION, classify.kind)
         assertEquals(mapOf("text" to "great"), classify.decision(mapOf("text" to "great")).state)
     }
 
     @Test
     fun `offline bundle warnings use readable missing references`() {
         val document =
-            UseCaseDocument.parse(
+            PromptDocument.parse(
                 """
                 {"schema_version": 1, "project": "p", "environment": "production",
                  "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
@@ -77,19 +77,19 @@ class ReadableSchemaTest {
                  "prompt_versions": {}, "models": {}}
                 """.trimIndent(),
             )
-        val pin = Resolver.resolve(document, "greeting")
+        val prompt = Resolver.resolve(document, "greeting")
         assertEquals(
             listOf("missing_prompt_version: greeting@3", "missing_model: openrouter:missing:model"),
-            pin.warnings,
+            prompt.warnings,
         )
-        assertNull(pin.modelId)
-        assertNull(pin.promptVersionId)
+        assertNull(prompt.modelId)
+        assertNull(prompt.promptVersionId)
     }
 
     @Test
     fun `offline bundle rejects prompt version keys that do not match embedded prompt and number`() {
         assertFailsWith<PromptOnException> {
-            UseCaseDocument.parse(
+            PromptDocument.parse(
                 """
                 {"schema_version": 1, "project": "p", "environment": "production",
                  "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
@@ -110,7 +110,7 @@ class ReadableSchemaTest {
     @Test
     fun `offline bundle rejects model keys that do not match embedded provider and model`() {
         assertFailsWith<PromptOnException> {
-            UseCaseDocument.parse(
+            PromptDocument.parse(
                 """
                 {"schema_version": 1, "project": "p", "environment": "production",
                  "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
@@ -131,7 +131,7 @@ class ReadableSchemaTest {
     @Test
     fun `offline bundle preserves model names containing colons`() {
         val document =
-            UseCaseDocument.parse(
+            PromptDocument.parse(
                 """
                 {"schema_version": 1, "project": "p", "environment": "production",
                  "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
@@ -164,7 +164,7 @@ class ReadableSchemaTest {
             )
         for (fragment in invalidFragments) {
             assertFailsWith<PromptOnException> {
-                UseCaseDocument.parse(
+                PromptDocument.parse(
                     """
                     {"schema_version": 1, "project": "p", "environment": "production",
                      "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
@@ -186,7 +186,7 @@ class ReadableSchemaTest {
     @Test
     fun `offline bundle does not accept legacy deployment aliases`() {
         assertFailsWith<PromptOnException> {
-            UseCaseDocument.parse(
+            PromptDocument.parse(
                 """
                 {"schema_version": 1, "project": "p", "environment": "production",
                  "prompts": {"greeting": {"kind": "chat", "default_params": {}}},
@@ -206,39 +206,39 @@ class ReadableSchemaTest {
 
     @Test
     fun `single detail single prompt chat documents resolve from singular resources`() {
-        val document = UseCaseDocument.parse(singleDetailChat())
-        val useCase = Resolver.resolve(document, "support_reply")
-        val request = useCase.request(mapOf("question" to "pricing", "plan" to "pro"))
+        val document = PromptDocument.parse(singleDetailChat())
+        val prompt = Resolver.resolve(document, "support_reply")
+        val request = prompt.request(mapOf("question" to "pricing", "plan" to "pro"))
 
         assertEquals(1, document.schemaVersion)
-        assertEquals("support_reply", useCase.key)
-        assertEquals("openrouter", useCase.provider)
-        assertEquals("anthropic/claude-sonnet-4", useCase.model)
-        assertEquals(1, useCase.promptVersionNumber)
-        assertNull(useCase.deploymentId)
-        assertNull(useCase.modelId)
-        assertNull(useCase.promptVersionId)
+        assertEquals("support_reply", prompt.key)
+        assertEquals("openrouter", prompt.provider)
+        assertEquals("anthropic/claude-sonnet-4", prompt.model)
+        assertEquals(1, prompt.promptVersionNumber)
+        assertNull(prompt.deploymentId)
+        assertNull(prompt.modelId)
+        assertNull(prompt.promptVersionId)
         assertEquals("chat_completions", request.api)
         assertEquals("/api/v1/chat/completions", request.path)
         assertEquals("anthropic/claude-sonnet-4", request.body["model"])
         assertTrue(request.body.containsKey("usage"))
         assertEquals(
             "Reply to pricing for pro.",
-            useCase.messages(mapOf("question" to "pricing", "plan" to "pro"))[1].content,
+            prompt.messages(mapOf("question" to "pricing", "plan" to "pro"))[1].content,
         )
     }
 
     @Test
     fun `single detail single prompt Decision documents prepare Decision requests`() {
-        val document = UseCaseDocument.parse(singleDetailDecision())
-        val useCase = Resolver.resolve(document, "decision_triage")
+        val document = PromptDocument.parse(singleDetailDecision())
+        val prompt = Resolver.resolve(document, "decision_triage")
         val request =
-            useCase.request(
+            prompt.request(
                 mapOf("ticket" to "T-1", "plan" to "team", "region" to "eu"),
                 PreparedRequestOptions(sessionId = "session-1", user = "user-1"),
             )
 
-        assertEquals(UseCaseKind.DECISION, useCase.kind)
+        assertEquals(PromptKind.DECISION, prompt.kind)
         assertEquals("decisions", request.api)
         assertEquals("/api/v1/systemone", request.path)
         assertEquals("typesafe/jev-1.13", request.body["model"])
@@ -260,12 +260,12 @@ class ReadableSchemaTest {
     @Test
     fun `single detail rejects incomplete mixed or mismatched single prompt documents`() {
         assertFailsWith<PromptOnException> {
-            UseCaseDocument.parse(
+            PromptDocument.parse(
                 """{"schema_version": 1, "project": "p", "environment": "production", "prompts": {}}""",
             )
         }
         assertFailsWith<PromptOnException> {
-            UseCaseDocument.parse(
+            PromptDocument.parse(
                 """
                 {"schema_version": 1, "project": "p", "environment": "production",
                  "prompt": {"key": "greeting", "kind": "chat"},
@@ -277,7 +277,7 @@ class ReadableSchemaTest {
             )
         }
         assertFailsWith<PromptOnException> {
-            UseCaseDocument.parse(
+            PromptDocument.parse(
                 """
                 {"schema_version": 1, "project": "p", "environment": "production",
                  "prompt": {"key": "greeting", "kind": "chat"},
@@ -289,7 +289,7 @@ class ReadableSchemaTest {
             )
         }
         assertFailsWith<PromptOnException> {
-            UseCaseDocument.parse(
+            PromptDocument.parse(
                 """
                 {"schema_version": 1, "project": "p", "environment": "production",
                  "prompt": {"key": "greeting", "kind": "chat"},

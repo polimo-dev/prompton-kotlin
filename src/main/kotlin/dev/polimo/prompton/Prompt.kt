@@ -6,16 +6,16 @@ package dev.polimo.prompton
  * [messageTemplates] and [textTemplate] are the raw templates; [messages] and [text] substitute
  * this call's variables into them.
  */
-public data class UseCase(
+public data class Prompt(
     val key: String,
-    val kind: UseCaseKind,
+    val kind: PromptKind,
     val environment: String,
     val deploymentId: String?,
     val deploymentRevision: String?,
-    /** The chosen prompt name, `null` for an embedding prompt. */
-    val prompt: String?,
-    /** Every prompt name the live revision pins, sorted. */
-    val promptNames: List<String>,
+    /** The chosen template name, `null` for an embedding prompt. */
+    val template: String?,
+    /** Every template name the live revision pins, sorted. */
+    val templateNames: List<String>,
     /** The provider-side model string to send to the provider, unchanged. */
     val model: String?,
     /** The catalog id of the model. */
@@ -34,14 +34,14 @@ public data class UseCase(
     val textTemplate: String?,
     val variables: List<VariableDefinition>,
     val payloadPolicy: PayloadPolicy?,
-    val source: UseCaseSource,
+    val source: PromptSource,
     val etag: String?,
     val warnings: List<String>,
     /** Immutable prompt-version kind used for provider request preparation. */
-    val pinnedKind: UseCaseKind? = kind,
+    val pinnedKind: PromptKind? = kind,
 ) {
     internal var owner: PromptOn? = null
-    private val nextTrackSelection = ThreadLocal<UseCase?>()
+    private val nextTrackSelection = ThreadLocal<Prompt?>()
 
     /**
      * Renders a chat prompt with this call's variables.
@@ -52,10 +52,10 @@ public data class UseCase(
     @JvmOverloads
     public fun messages(
         variables: Map<String, Any?>? = null,
-        prompt: String? = null,
+        template: String? = null,
     ): List<PromptMessage> {
-        val selected = selected(prompt)
-        if (selected.kind != UseCaseKind.CHAT) {
+        val selected = selected(template)
+        if (selected.kind != PromptKind.CHAT) {
             throw PromptOnException("prompt '${selected.key}' is ${selected.kind.wire}, not chat")
         }
         val templates =
@@ -74,10 +74,10 @@ public data class UseCase(
     @JvmOverloads
     public fun text(
         variables: Map<String, Any?>? = null,
-        prompt: String? = null,
+        template: String? = null,
     ): String {
-        val selected = selected(prompt)
-        if (selected.kind != UseCaseKind.TEXT) {
+        val selected = selected(template)
+        if (selected.kind != PromptKind.TEXT) {
             throw PromptOnException("prompt '${selected.key}' is ${selected.kind.wire}, not text")
         }
         val template = selected.textTemplate ?: throw PromptOnException("prompt '${selected.key}' has no text prompt")
@@ -99,7 +99,7 @@ public data class UseCase(
         prompt: String? = null,
     ): RenderedDecision {
         val selected = selected(prompt)
-        if (selected.kind != UseCaseKind.DECISION) {
+        if (selected.kind != PromptKind.DECISION) {
             throw PromptOnException("prompt '${selected.key}' is ${selected.kind.wire}, not decision")
         }
         val template =
@@ -146,64 +146,64 @@ public data class UseCase(
         return attachedOwner().track(selected, meta, block)
     }
 
-    private fun rememberForTrack(selected: UseCase) {
+    private fun rememberForTrack(selected: Prompt) {
         nextTrackSelection.set(selected)
     }
 
-    private fun takeTrackSelection(): UseCase {
+    private fun takeTrackSelection(): Prompt {
         val selected = nextTrackSelection.get()
         nextTrackSelection.remove()
         return selected ?: this
     }
 
-    private fun selected(prompt: String?): UseCase {
-        if (prompt == null || prompt == this.prompt) return this
-        return attachedOwner().useCase(key, prompt)
+    private fun selected(template: String?): Prompt {
+        if (template == null || template == this.template) return this
+        return attachedOwner().prompt(key, template)
     }
 
     private fun attachedOwner(): PromptOn =
         owner ?: throw PromptOnException("this prompt is not attached to a PromptOn client")
 }
 
-/** The internal selection algorithm: prompt document + key (+ prompt name) to a [UseCase]. */
+/** The internal selection algorithm: prompt document + key (+ template name) to a [Prompt]. */
 internal object Resolver {
-    internal const val DEFAULT_PROMPT: String = "default"
+    internal const val DEFAULT_TEMPLATE: String = "default"
 
     /**
-     * Selects [useCaseKey] from [document].
+     * Selects [promptKey] from [document].
      *
-     * @throws UnknownUseCaseException the prompt document has no such prompt
-     * @throws UnresolvedUseCaseException the prompt has no live deployment in this environment
+     * @throws UnknownPromptException the prompt document has no such prompt
+     * @throws UnresolvedPromptException the prompt has no live deployment in this environment
      * @throws UnknownPromptException the deployment pins no prompt of that name
      */
     @JvmOverloads
     internal fun resolve(
-        document: UseCaseDocument,
-        useCaseKey: String,
-        prompt: String? = null,
-        source: UseCaseSource = UseCaseSource.REMOTE,
+        document: PromptDocument,
+        promptKey: String,
+        template: String? = null,
+        source: PromptSource = PromptSource.REMOTE,
         etag: String? = null,
-    ): UseCase {
-        val useCase = document.useCases[useCaseKey] ?: throw UnknownUseCaseException(useCaseKey)
-        val deployment = document.deployments[useCaseKey] ?: throw UnresolvedUseCaseException(useCaseKey)
-        val promptNames = if (useCase.kind ==
-            UseCaseKind.EMBEDDING
+    ): Prompt {
+        val promptEntry = document.prompts[promptKey] ?: throw UnknownPromptException(promptKey)
+        val deployment = document.deployments[promptKey] ?: throw UnresolvedPromptException(promptKey)
+        val templateNames = if (promptEntry.kind ==
+            PromptKind.EMBEDDING
         ) {
             emptyList()
         } else {
-            deployment.promptPins.keys.sorted()
+            deployment.templatePins.keys.sorted()
         }
 
-        val promptName: String?
+        val templateName: String?
         val versionId: String?
-        if (useCase.kind == UseCaseKind.EMBEDDING) {
-            promptName = null
+        if (promptEntry.kind == PromptKind.EMBEDDING) {
+            templateName = null
             versionId = null
         } else {
-            promptName = prompt ?: DEFAULT_PROMPT
+            templateName = template ?: DEFAULT_TEMPLATE
             versionId =
-                deployment.promptPins[promptName]
-                    ?: throw UnknownPromptException(useCaseKey, promptName, promptNames)
+                deployment.templatePins[templateName]
+                    ?: throw UnknownTemplateException(promptKey, templateName, templateNames)
         }
 
         val warnings = mutableListOf<String>()
@@ -221,31 +221,31 @@ internal object Resolver {
                     null
                 }
             }
-        val runtimeKind = version?.kind ?: useCase.kind
+        val runtimeKind = version?.kind ?: promptEntry.kind
 
-        return UseCase(
-            key = useCaseKey,
+        return Prompt(
+            key = promptKey,
             kind = runtimeKind,
             environment = document.environment ?: "",
             deploymentId = deployment.id,
             deploymentRevision = deployment.revision,
-            prompt = promptName,
-            promptNames = if (useCase.kind == UseCaseKind.EMBEDDING) emptyList() else promptNames,
+            template = templateName,
+            templateNames = if (promptEntry.kind == PromptKind.EMBEDDING) emptyList() else templateNames,
             model = model?.modelId,
             modelId = null,
             provider = model?.provider,
             api = deployment.api,
             requestPath = deployment.requestPath,
-            params = mergeTools(mergeShallow(useCase.defaultParams, deployment.params), version?.tools),
+            params = mergeTools(mergeShallow(promptEntry.defaultParams, deployment.params), version?.tools),
             providerOptions = mergeShallow(model?.providerOptions, deployment.providerOptions),
             promptVersionId = null,
             promptVersionNumber = version?.number,
             engine = version?.engine ?: TemplateEngine.LIQUID,
-            messageTemplates = if (runtimeKind == UseCaseKind.CHAT) version?.messages else null,
-            decisionTemplate = if (runtimeKind == UseCaseKind.DECISION) version?.decision else null,
-            textTemplate = if (runtimeKind == UseCaseKind.TEXT) version?.textTemplate else null,
-            variables = useCase.variables,
-            payloadPolicy = useCase.payloadPolicy,
+            messageTemplates = if (runtimeKind == PromptKind.CHAT) version?.messages else null,
+            decisionTemplate = if (runtimeKind == PromptKind.DECISION) version?.decision else null,
+            textTemplate = if (runtimeKind == PromptKind.TEXT) version?.textTemplate else null,
+            variables = promptEntry.variables,
+            payloadPolicy = promptEntry.payloadPolicy,
             source = source,
             etag = etag,
             warnings = warnings,
@@ -314,23 +314,23 @@ internal object RequestBuilder {
     private val DECISION_FIELDS = setOf("session_id", "trace", "user")
 
     fun prepare(
-        useCase: UseCase,
+        prompt: Prompt,
         variables: Map<String, Any?>,
         options: PreparedRequestOptions,
     ): PreparedRequest {
-        val api = expectApi(useCase)
-        val path = expectRequestPath(useCase)
+        val api = expectApi(prompt)
+        val path = expectRequestPath(prompt)
         return when (api) {
-            "chat_completions" -> prepareChat(useCase, variables, options, api, path)
-            "decisions" -> prepareDecision(useCase, variables, options, api, path)
+            "chat_completions" -> prepareChat(prompt, variables, options, api, path)
+            "decisions" -> prepareDecision(prompt, variables, options, api, path)
             else -> throw PreparedRequestException(
-                "prompt ${useCase.key} uses unsupported deployment api ${useCase.api}",
+                "prompt ${prompt.key} uses unsupported deployment api ${prompt.api}",
             )
         }
     }
 
     private fun prepareChat(
-        useCase: UseCase,
+        prompt: Prompt,
         variables: Map<String, Any?>,
         options: PreparedRequestOptions,
         api: String,
@@ -339,92 +339,92 @@ internal object RequestBuilder {
         if (options.sessionId != null || options.trace != null || options.user != null) {
             throw PreparedRequestException("Decisions metadata options require the Decisions API")
         }
-        if (useCase.pinnedKind != UseCaseKind.CHAT) {
+        if (prompt.pinnedKind != PromptKind.CHAT) {
             throw PreparedRequestException(
-                "prompt ${useCase.key} cannot prepare chat_completions because its pinned prompt version kind is ${useCase.pinnedKind?.wire ?: "missing"}",
+                "prompt ${prompt.key} cannot prepare chat_completions because its pinned prompt version kind is ${prompt.pinnedKind?.wire ?: "missing"}",
             )
         }
         val messages =
-            useCase.messageTemplates ?: throw PreparedRequestException("prompt ${useCase.key} has no chat prompt")
+            prompt.messageTemplates ?: throw PreparedRequestException("prompt ${prompt.key} has no chat prompt")
         val body = LinkedHashMap<String, Any?>()
-        body["model"] = expectModel(useCase)
-        body["messages"] = Template.renderMessages(messages, variables, useCase.engine).map { messageMap(it) }
-        body.putAll(requestParams(Resolver.mergeShallow(useCase.params, options.params), api, emptyMap()))
-        if (useCase.provider == "openrouter") body["usage"] = mapOf("include" to true)
-        val provider = providerOptions(useCase, options)
+        body["model"] = expectModel(prompt)
+        body["messages"] = Template.renderMessages(messages, variables, prompt.engine).map { messageMap(it) }
+        body.putAll(requestParams(Resolver.mergeShallow(prompt.params, options.params), api, emptyMap()))
+        if (prompt.provider == "openrouter") body["usage"] = mapOf("include" to true)
+        val provider = providerOptions(prompt, options)
         if (provider.isNotEmpty()) body["provider"] = provider
         return PreparedRequest(api = api, method = "POST", path = path, body = body)
     }
 
     private fun prepareDecision(
-        useCase: UseCase,
+        prompt: Prompt,
         variables: Map<String, Any?>,
         options: PreparedRequestOptions,
         api: String,
         path: String,
     ): PreparedRequest {
-        if (useCase.pinnedKind != UseCaseKind.DECISION) {
+        if (prompt.pinnedKind != PromptKind.DECISION) {
             throw PreparedRequestException(
-                "prompt ${useCase.key} cannot prepare decisions because its pinned prompt version kind is ${useCase.pinnedKind?.wire ?: "missing"}",
+                "prompt ${prompt.key} cannot prepare decisions because its pinned prompt version kind is ${prompt.pinnedKind?.wire ?: "missing"}",
             )
         }
-        val decision = useCase.decision(variables)
-        val params = decisionParams(useCase.params, options)
+        val decision = prompt.decision(variables)
+        val params = decisionParams(prompt.params, options)
         val body = LinkedHashMap<String, Any?>()
-        body["model"] = expectModel(useCase)
+        body["model"] = expectModel(prompt)
         body["state"] = decision.state
         body["questions"] = decision.questions
         body.putAll(params)
-        val provider = providerOptions(useCase, options)
+        val provider = providerOptions(prompt, options)
         if (provider.isNotEmpty()) body["provider"] = provider
         return PreparedRequest(api = api, method = "POST", path = path, body = body)
     }
 
-    private fun expectApi(useCase: UseCase): String {
-        val api = useCase.api
+    private fun expectApi(prompt: Prompt): String {
+        val api = prompt.api
         if (api != "chat_completions" && api != "decisions") {
             throw PreparedRequestException(
-                "prompt ${useCase.key} cannot prepare a provider request because its deployment has no supported api metadata",
+                "prompt ${prompt.key} cannot prepare a provider request because its deployment has no supported api metadata",
             )
         }
-        if (api == "chat_completions" && useCase.pinnedKind != UseCaseKind.CHAT) {
+        if (api == "chat_completions" && prompt.pinnedKind != PromptKind.CHAT) {
             throw PreparedRequestException(
-                "prompt ${useCase.key} cannot prepare chat_completions because its pinned prompt version kind is ${useCase.pinnedKind?.wire ?: "missing"}",
+                "prompt ${prompt.key} cannot prepare chat_completions because its pinned prompt version kind is ${prompt.pinnedKind?.wire ?: "missing"}",
             )
         }
-        if (api == "decisions" && useCase.pinnedKind != UseCaseKind.DECISION) {
+        if (api == "decisions" && prompt.pinnedKind != PromptKind.DECISION) {
             throw PreparedRequestException(
-                "prompt ${useCase.key} cannot prepare decisions because its pinned prompt version kind is ${useCase.pinnedKind?.wire ?: "missing"}",
+                "prompt ${prompt.key} cannot prepare decisions because its pinned prompt version kind is ${prompt.pinnedKind?.wire ?: "missing"}",
             )
         }
         return api
     }
 
-    private fun expectRequestPath(useCase: UseCase): String {
-        val path = useCase.requestPath
+    private fun expectRequestPath(prompt: Prompt): String {
+        val path = prompt.requestPath
         if (path.isNullOrEmpty()) {
             throw PreparedRequestException(
-                "prompt ${useCase.key} cannot prepare a provider request because its deployment has no request_path metadata",
+                "prompt ${prompt.key} cannot prepare a provider request because its deployment has no request_path metadata",
             )
         }
         if (!path.startsWith("/") || path.startsWith("//") ||
             Regex("^[a-z][a-z0-9+.-]*:", RegexOption.IGNORE_CASE).containsMatchIn(path)
         ) {
             throw PreparedRequestException(
-                "prompt ${useCase.key} has invalid request_path $path; expected an origin-relative path",
+                "prompt ${prompt.key} has invalid request_path $path; expected an origin-relative path",
             )
         }
-        val expected = expectedPaths(useCase.provider, useCase.api)
+        val expected = expectedPaths(prompt.provider, prompt.api)
         if (expected.isEmpty()) {
             throw PreparedRequestException(
-                "prompt ${useCase.key} cannot prepare a provider request for provider ${useCase.provider} and api ${useCase.api}",
+                "prompt ${prompt.key} cannot prepare a provider request for provider ${prompt.provider} and api ${prompt.api}",
             )
         }
         if (path !in expected) {
             throw PreparedRequestException(
-                "prompt ${useCase.key} has request_path $path, expected ${expected.joinToString(
+                "prompt ${prompt.key} has request_path $path, expected ${expected.joinToString(
                     " or ",
-                )} for provider ${useCase.provider} and api ${useCase.api}",
+                )} for provider ${prompt.provider} and api ${prompt.api}",
             )
         }
         return path
@@ -442,10 +442,10 @@ internal object RequestBuilder {
             else -> emptyList()
         }
 
-    private fun expectModel(useCase: UseCase): String =
-        useCase.model?.takeIf { it.isNotBlank() }
+    private fun expectModel(prompt: Prompt): String =
+        prompt.model?.takeIf { it.isNotBlank() }
             ?: throw PreparedRequestException(
-                "prompt ${useCase.key} cannot prepare a provider request because its deployment model is missing",
+                "prompt ${prompt.key} cannot prepare a provider request because its deployment model is missing",
             )
 
     private fun requestParams(
@@ -505,13 +505,13 @@ internal object RequestBuilder {
     }
 
     private fun providerOptions(
-        useCase: UseCase,
+        prompt: Prompt,
         options: PreparedRequestOptions,
     ): Map<String, Any?> {
-        val provider = Resolver.mergeShallow(useCase.providerOptions, options.providerOptions)
-        if (useCase.provider != "openrouter" && provider.isNotEmpty()) {
+        val provider = Resolver.mergeShallow(prompt.providerOptions, options.providerOptions)
+        if (prompt.provider != "openrouter" && provider.isNotEmpty()) {
             throw PreparedRequestException(
-                "prompt ${useCase.key} has provider options, but provider options are only supported for OpenRouter requests",
+                "prompt ${prompt.key} has provider options, but provider options are only supported for OpenRouter requests",
             )
         }
         if (!Decisions.json(provider)) throw PreparedRequestException("provider options must contain JSON values")

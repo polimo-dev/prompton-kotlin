@@ -1,15 +1,15 @@
 package dev.polimo.prompton.conformance
 
 import dev.polimo.prompton.MissingVariableException
+import dev.polimo.prompton.Prompt
+import dev.polimo.prompton.PromptDocument
+import dev.polimo.prompton.PromptKind
 import dev.polimo.prompton.PromptMessage
 import dev.polimo.prompton.PromptOnException
 import dev.polimo.prompton.Resolver
 import dev.polimo.prompton.UnknownPromptException
-import dev.polimo.prompton.UnknownUseCaseException
-import dev.polimo.prompton.UnresolvedUseCaseException
-import dev.polimo.prompton.UseCase
-import dev.polimo.prompton.UseCaseDocument
-import dev.polimo.prompton.UseCaseKind
+import dev.polimo.prompton.UnknownTemplateException
+import dev.polimo.prompton.UnresolvedPromptException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -23,13 +23,13 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 
 /** Runs every case of `conformance/render.json`: the prompt algorithm the server prompt endpoint runs. */
-class UseCaseConformanceTest {
+class PromptConformanceTest {
     @Test
     fun `prompt cases`() {
         val file = Conformance.load("prompt")
         val documents =
             (file["documents"] as JsonObject).entries.associate { (name, document) ->
-                name to UseCaseDocument.parse(document.toString())
+                name to PromptDocument.parse(document.toString())
             }
 
         var executed = 0
@@ -44,21 +44,21 @@ class UseCaseConformanceTest {
 
             val actual =
                 try {
-                    val useCase = Resolver.resolve(document, key, prompt)
-                    describe(useCase, hasVariables, variables)
-                } catch (e: UnknownUseCaseException) {
-                    buildJsonObject {
-                        put("error", "unknown_prompt")
-                        put("key", e.useCase)
-                    }
-                } catch (e: UnresolvedUseCaseException) {
-                    buildJsonObject { put("error", "unresolved") }
+                    val prompt = Resolver.resolve(document, key, prompt)
+                    describe(prompt, hasVariables, variables)
                 } catch (e: UnknownPromptException) {
                     buildJsonObject {
+                        put("error", "unknown_prompt")
+                        put("key", e.promptKey)
+                    }
+                } catch (e: UnresolvedPromptException) {
+                    buildJsonObject { put("error", "unresolved") }
+                } catch (e: UnknownTemplateException) {
+                    buildJsonObject {
                         put("error", "unknown_template")
-                        put("key", e.useCase)
-                        put("template", e.prompt)
-                        put("template_names", JsonArray(e.promptNames.map { JsonPrimitive(it) }))
+                        put("key", e.promptKey)
+                        put("template", e.template)
+                        put("template_names", JsonArray(e.templateNames.map { JsonPrimitive(it) }))
                     }
                 } catch (e: MissingVariableException) {
                     buildJsonObject {
@@ -75,7 +75,7 @@ class UseCaseConformanceTest {
 
     @Test
     fun `native tool messages survive rendering as whole provider maps`() {
-        val document = UseCaseDocument.parse(
+        val document = PromptDocument.parse(
             """
             {
               "schema_version": 1,
@@ -179,7 +179,7 @@ class UseCaseConformanceTest {
 
     @Test
     fun `prompt tools become provider params and strip authoring metadata`() {
-        val document = UseCaseDocument.parse(
+        val document = PromptDocument.parse(
             """
             {
               "schema_version": 1,
@@ -267,7 +267,7 @@ class UseCaseConformanceTest {
 
     @Test
     fun `prompt tools conflict with different legacy provider params`() {
-        val document = UseCaseDocument.parse(
+        val document = PromptDocument.parse(
             """
             {
               "schema_version": 1,
@@ -327,39 +327,39 @@ class UseCaseConformanceTest {
     }
 
     private fun describe(
-        useCase: UseCase,
+        prompt: Prompt,
         hasVariables: Boolean,
         variables: Map<String, Any?>?,
     ): JsonObject {
         val fields = LinkedHashMap<String, JsonElement>()
-        fields["deployment_id"] = nullable(useCase.deploymentId)
-        fields["key"] = JsonPrimitive(useCase.key)
-        fields["revision"] = useCase.deploymentRevision?.let { JsonPrimitive(it) } ?: JsonNull
-        fields["kind"] = JsonPrimitive(useCase.kind.wire)
-        fields["template"] = nullable(useCase.prompt)
-        fields["template_names"] = JsonArray(useCase.promptNames.map { JsonPrimitive(it) })
-        fields["model"] = nullable(useCase.model)
-        fields["model_id"] = nullable(useCase.modelId)
-        fields["provider"] = nullable(useCase.provider)
-        fields["params"] = jsonOf(useCase.params)
-        fields["provider_options"] = jsonOf(useCase.providerOptions)
+        fields["deployment_id"] = nullable(prompt.deploymentId)
+        fields["key"] = JsonPrimitive(prompt.key)
+        fields["revision"] = prompt.deploymentRevision?.let { JsonPrimitive(it) } ?: JsonNull
+        fields["kind"] = JsonPrimitive(prompt.kind.wire)
+        fields["template"] = nullable(prompt.template)
+        fields["template_names"] = JsonArray(prompt.templateNames.map { JsonPrimitive(it) })
+        fields["model"] = nullable(prompt.model)
+        fields["model_id"] = nullable(prompt.modelId)
+        fields["provider"] = nullable(prompt.provider)
+        fields["params"] = jsonOf(prompt.params)
+        fields["provider_options"] = jsonOf(prompt.providerOptions)
         fields["prompt_version"] =
-            useCase.promptVersionNumber?.let { number ->
+            prompt.promptVersionNumber?.let { number ->
                 buildJsonObject {
                     put("id", JsonNull)
                     put("number", number)
                 }
             } ?: JsonNull
-        fields["warnings"] = JsonArray(useCase.warnings.map { JsonPrimitive(it) })
-        fields["source"] = JsonPrimitive(useCase.source.wire)
+        fields["warnings"] = JsonArray(prompt.warnings.map { JsonPrimitive(it) })
+        fields["source"] = JsonPrimitive(prompt.source.wire)
 
-        if (useCase.kind == UseCaseKind.CHAT && useCase.messageTemplates != null) {
+        if (prompt.kind == PromptKind.CHAT && prompt.messageTemplates != null) {
             val messages =
-                if (hasVariables) useCase.messages(variables) else useCase.messageTemplates!!
+                if (hasVariables) prompt.messages(variables) else prompt.messageTemplates!!
             fields["messages"] = JsonArray(messages.map { messageJson(it) })
         }
-        if (useCase.kind == UseCaseKind.TEXT && useCase.textTemplate != null) {
-            val text = if (hasVariables) useCase.text(variables) else useCase.textTemplate!!
+        if (prompt.kind == PromptKind.TEXT && prompt.textTemplate != null) {
+            val text = if (hasVariables) prompt.text(variables) else prompt.textTemplate!!
             fields["text"] = JsonPrimitive(text)
         }
         return JsonObject(fields)

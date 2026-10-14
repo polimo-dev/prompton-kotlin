@@ -26,7 +26,7 @@ class TrackWrapperTest {
                 log = log,
             )
         val prompton = PromptOn(config, clock)
-        prompton.putUseCaseDocument(SnapshotFixtures.useCaseDocument(), UseCaseSource.REMOTE)
+        prompton.putPromptDocument(SnapshotFixtures.promptDocument(), PromptSource.REMOTE)
         return prompton
     }
 
@@ -38,9 +38,9 @@ class TrackWrapperTest {
     @Test
     fun `the block's value is returned unchanged`() {
         prompton().use { prompton ->
-            val useCase = prompton.useCase("greeting")
+            val prompt = prompton.prompt("greeting")
             val answer =
-                useCase.trackBlocking { call ->
+                prompt.trackBlocking { call ->
                     call.result(Result(content = "Hello, Ada!", finishReason = "stop"))
                     listOf("Hello, Ada!")
                 }
@@ -59,8 +59,8 @@ class TrackWrapperTest {
     fun `latency is measured from the clock`() {
         val clock = FakeClock()
         prompton(clock).use { prompton ->
-            val useCase = prompton.useCase("greeting")
-            useCase.trackBlocking { call ->
+            val prompt = prompton.prompt("greeting")
+            prompt.trackBlocking { call ->
                 clock.advanceMillis(1_234)
                 call.result(Result(content = "hi"))
             }
@@ -71,10 +71,10 @@ class TrackWrapperTest {
     @Test
     fun `an exception is logged as an app error and rethrown unchanged`() {
         prompton().use { prompton ->
-            val useCase = prompton.useCase("greeting")
+            val prompt = prompton.prompt("greeting")
             val thrown =
                 assertFailsWith<IllegalStateException> {
-                    useCase.trackBlocking { error("the provider client blew up") }
+                    prompt.trackBlocking { error("the provider client blew up") }
                 }
             assertEquals("the provider client blew up", thrown.message)
 
@@ -90,10 +90,10 @@ class TrackWrapperTest {
     @Test
     fun `a closed req transport message thrown by the block is still app logged and rethrown`() {
         prompton().use { prompton ->
-            val useCase = prompton.useCase("greeting")
+            val prompt = prompton.prompt("greeting")
             val thrown =
                 assertFailsWith<IllegalStateException> {
-                    useCase.trackBlocking {
+                    prompt.trackBlocking {
                         throw IllegalStateException(
                             "failed to send request: %Req.TransportError{reason: :closed}",
                         )
@@ -111,8 +111,8 @@ class TrackWrapperTest {
     @Test
     fun `a recorded failure keeps the usage and output that came with it`() {
         prompton().use { prompton ->
-            val useCase = prompton.useCase("greeting")
-            useCase.trackBlocking { call ->
+            val prompt = prompton.prompt("greeting")
+            prompt.trackBlocking { call ->
                 call.failed(
                     LogError(ErrorKind.PARSE, message = "unexpected end of JSON input"),
                     Result(
@@ -138,9 +138,9 @@ class TrackWrapperTest {
                 redact = { error("closed transport records are filtered before redaction") },
             )
         prompton(log = log).use { prompton ->
-            val useCase = prompton.useCase("greeting")
+            val prompt = prompton.prompt("greeting")
             val answer =
-                useCase.trackBlocking { call ->
+                prompt.trackBlocking { call ->
                     call.failed(
                         LogError(
                             ErrorKind.TRANSPORT,
@@ -156,10 +156,10 @@ class TrackWrapperTest {
     }
 
     @Test
-    fun `the useCase's pin is recorded as evidence`() {
+    fun `the prompt's pin is recorded as evidence`() {
         prompton().use { prompton ->
-            val useCase = prompton.useCase("greeting")
-            useCase.trackBlocking { call -> call.result(Result(content = "hi")) }
+            val prompt = prompton.prompt("greeting")
+            prompt.trackBlocking { call -> call.result(Result(content = "hi")) }
 
             val record = prompton.capturedRecords().single()
             assertFalse(record.containsKey("deployment_id"))
@@ -177,8 +177,8 @@ class TrackWrapperTest {
     @Test
     fun `an explicit default prompt's pin is recorded as evidence`() {
         prompton().use { prompton ->
-            val useCase = prompton.useCase("greeting", prompt = "default")
-            useCase.trackBlocking { call -> call.result(Result(content = "안녕하세요")) }
+            val prompt = prompton.prompt("greeting", template = "default")
+            prompt.trackBlocking { call -> call.result(Result(content = "안녕하세요")) }
 
             val record = prompton.capturedRecords().single()
             assertEquals("default", field(record, "template"))
@@ -190,9 +190,9 @@ class TrackWrapperTest {
     @Test
     fun `an explicit default prompt rendered from the base prompt is recorded as evidence`() {
         prompton().use { prompton ->
-            val useCase = prompton.useCase("greeting")
-            val messages = useCase.messages(mapOf("name" to "Ada"), prompt = "default")
-            useCase.trackBlocking(TrackMeta(variables = mapOf("name" to "Ada"), inputMessages = messages)) { call ->
+            val prompt = prompton.prompt("greeting")
+            val messages = prompt.messages(mapOf("name" to "Ada"), template = "default")
+            prompt.trackBlocking(TrackMeta(variables = mapOf("name" to "Ada"), inputMessages = messages)) { call ->
                 call.result(Result(content = "안녕하세요"))
             }
 
@@ -206,12 +206,12 @@ class TrackWrapperTest {
     @Test
     fun `an explicit default prompt render selection is cleared after one track`() {
         prompton().use { prompton ->
-            val useCase = prompton.useCase("greeting")
-            val messages = useCase.messages(mapOf("name" to "Ada"), prompt = "default")
-            useCase.trackBlocking(TrackMeta(inputMessages = messages)) { call ->
+            val prompt = prompton.prompt("greeting")
+            val messages = prompt.messages(mapOf("name" to "Ada"), template = "default")
+            prompt.trackBlocking(TrackMeta(inputMessages = messages)) { call ->
                 call.result(Result(content = "안녕하세요"))
             }
-            useCase.trackBlocking { call -> call.result(Result(content = "Hello again")) }
+            prompt.trackBlocking { call -> call.result(Result(content = "Hello again")) }
 
             val records = prompton.capturedRecords()
             assertEquals("default", field(records[0], "template"))
@@ -222,11 +222,11 @@ class TrackWrapperTest {
     @Test
     fun `a failed default prompt render does not leak into the next track`() {
         prompton().use { prompton ->
-            val useCase = prompton.useCase("greeting")
+            val prompt = prompton.prompt("greeting")
             assertFailsWith<MissingVariableException> {
-                useCase.messages(prompt = "default")
+                prompt.messages(template = "default")
             }
-            useCase.trackBlocking { call -> call.result(Result(content = "Hello")) }
+            prompt.trackBlocking { call -> call.result(Result(content = "Hello")) }
 
             val record = prompton.capturedRecords().single()
             assertEquals("default", field(record, "template"))
@@ -239,9 +239,9 @@ class TrackWrapperTest {
     fun `the suspending wrapper behaves like the blocking one`() =
         runBlocking {
             prompton().use { prompton ->
-                val useCase = prompton.useCase("greeting")
+                val prompt = prompton.prompt("greeting")
                 val answer =
-                    useCase.track(TrackMeta(traceId = "job:1")) { call ->
+                    prompt.track(TrackMeta(traceId = "job:1")) { call ->
                         call.result(Result(content = "Hello", finishReason = "stop"))
                         "Hello"
                     }
@@ -253,8 +253,8 @@ class TrackWrapperTest {
     @Test
     fun `tracked input keeps the tools and tool policies sent to the provider`() {
         prompton().use { prompton ->
-            val useCase = prompton.useCase("greeting")
-            val messages = useCase.messages(mapOf("name" to "Ada"))
+            val prompt = prompton.prompt("greeting")
+            val messages = prompt.messages(mapOf("name" to "Ada"))
             val tools =
                 listOf(
                     mapOf(
@@ -263,7 +263,7 @@ class TrackWrapperTest {
                     ),
                 )
 
-            useCase.trackBlocking(
+            prompt.trackBlocking(
                 TrackMeta(
                     inputMessages = messages,
                     params =
@@ -288,8 +288,8 @@ class TrackWrapperTest {
     @Test
     fun `tracked input records the final messages composed by the app`() {
         prompton().use { prompton ->
-            val useCase = prompton.useCase("greeting")
-            val managed = useCase.messages(mapOf("name" to "Ada"))
+            val prompt = prompton.prompt("greeting")
+            val managed = prompt.messages(mapOf("name" to "Ada"))
             val finalMessages =
                 managed +
                     listOf(
@@ -313,7 +313,7 @@ class TrackWrapperTest {
                         ),
                     )
 
-            useCase.trackBlocking(
+            prompt.trackBlocking(
                 TrackMeta(
                     variables = mapOf("name" to "Ada"),
                     inputMessages = finalMessages,
@@ -355,16 +355,12 @@ class TrackWrapperTest {
             }
             assertFailsWith<IllegalArgumentException> {
                 prompton.log(
-                    mapOf(
-                        "prompt_key" to "greeting",
-                        "status" to "ok",
-                        "started_at" to "2026-09-04T09:00:00Z",
-                    ),
+                    mapOf("prompt_key" to "greeting", "status" to "ok", "started_at" to "2026-09-04T09:00:00Z"),
                 )
             }
             assertFailsWith<IllegalArgumentException> {
                 LogRecord(
-                    useCase = " ",
+                    promptKey = " ",
                     model = "m",
                     status = LogStatus.OK,
                     startedAt = java.time.Instant.now(),

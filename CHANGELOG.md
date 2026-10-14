@@ -31,7 +31,7 @@ Breaking contract reset: prompt variable definitions are now `variables`, and on
 ## 0.6.1
 
 - Add native Decision prompt support: schema v6+ prompt-version `kind: "decision"`, local Decision rendering, provider request preparation, remote render/cache preservation and monitoring-log `input.decision`.
-- Add `UseCase.decision`, `UseCase.request`, `PreparedRequest`, `PreparedRequestOptions`, `RenderedDecision` and `Result.fromDecisions` for typed Decision provider responses and usage.
+- Add `Prompt.decision`, `Prompt.request`, `PreparedRequest`, `PreparedRequestOptions`, `RenderedDecision` and `Result.fromDecisions` for typed Decision provider responses and usage.
 - Reject missing or unsupported provider protocol metadata instead of preparing a chat-shaped request for Decision prompts.
 
 ## 0.6.0
@@ -53,7 +53,7 @@ Breaking contract reset: prompt variable definitions are now `variables`, and on
 
 Demand-driven config fetch release.
 
-- Removed startup and idle config polling. `useCase(key)` now fetches only that prompt key when its cached value is stale or missing.
+- Removed startup and idle config polling. `prompt(key)` now fetches only that prompt key when its cached value is stale or missing.
 - Added per-project/environment/prompt in-memory cache entries with a 10-second freshness TTL and a separate 10-second attempt gate.
 - Added same-key single-flight config fetches, one-second total config-fetch deadline, no SDK retry, stale fallback after failures, and explicit cold-cache failure.
 - Switched runtime config lookup to `GET /api/v1/prompts/{key}?environment=...` with per-key ETag validation. Bulk `GET /prompts` remains outside the normal runtime path.
@@ -74,16 +74,16 @@ Patch release correcting the SDK wire contract to the current PromptOn API.
 
 - Fetch prompt documents from `GET /api/v1/prompts` and render through `POST /api/v1/prompts/{key}/render`.
 - Decode canonical prompt documents with `prompts` and `template_pins`, and exercise `conformance/prompt.json` in the resolver tests.
-- Send the render request field as `template` and read `template` / `template_names` from render responses while keeping legacy public `UseCase` property names.
+- Send the render request field as `template` and read `template` / `template_names` from render responses while keeping legacy public `Prompt` property names.
 
 ## 0.2.0
 
 Breaking vocabulary rename for the clean PromptOn API.
 
-- Replaced the public call-site API with `PromptOn.useCase(key)` returning `UseCase`.
-- Added `UseCase.messages(vars, prompt = ...)` for chat prompts and `UseCase.text(vars, prompt = ...)`
+- Replaced the public call-site API with `PromptOn.prompt(key)` returning `Prompt`.
+- Added `Prompt.messages(vars, template = ...)` for chat prompts and `Prompt.text(vars, template = ...)`
   for text prompts, with kind checks.
-- Moved provider-call tracking to `UseCase.track(meta) { ... }` and `UseCase.trackBlocking(meta) { ... }`.
+- Moved provider-call tracking to `Prompt.track(meta) { ... }` and `Prompt.trackBlocking(meta) { ... }`.
 - Renamed monitoring record types to log vocabulary: `LogRecord`, `LogInput`, `LogOutput`,
   `LogError`, `LogStatus`, `TrackMeta`, `TrackCall` and `Result`.
 - Added `Result.fromOpenAI(answer)` and `Result.fromAnthropic(answer)` helpers for common provider

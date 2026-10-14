@@ -37,7 +37,7 @@ class SnapshotCacheTest {
     )
 
     private fun okResponse(
-        body: String = SnapshotFixtures.useCaseDocument(),
+        body: String = SnapshotFixtures.promptDocument(),
         etag: String = SnapshotFixtures.PRODUCTION_ETAG,
     ) = HttpResponse(200, mapOf("etag" to etag, "last-modified" to "Fri, 04 Sep 2026 00:21:48 GMT"), body)
 
@@ -46,7 +46,7 @@ class SnapshotCacheTest {
         val transport = StubTransport { okResponse() }
         PromptOn(config(transport), FakeClock()).use { prompton ->
             assertEquals(0, transport.requestCount())
-            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
+            assertEquals("openai/gpt-4o-mini", prompton.prompt("greeting").model)
             assertEquals(1, transport.requestCount())
             assertEquals(
                 "https://prompton.test/api/v1/prompts/greeting?environment=production",
@@ -59,7 +59,7 @@ class SnapshotCacheTest {
     fun `fresh cache hit does not fetch again within ttl`() {
         val transport = StubTransport { okResponse() }
         PromptOn(config(transport), FakeClock()).use { prompton ->
-            repeat(5) { assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model) }
+            repeat(5) { assertEquals("openai/gpt-4o-mini", prompton.prompt("greeting").model) }
             assertEquals(1, transport.requestCount())
         }
     }
@@ -83,10 +83,10 @@ class SnapshotCacheTest {
             }
         val clock = FakeClock()
         PromptOn(config(transport, 40.milliseconds), clock).use { prompton ->
-            prompton.useCase("greeting")
-            prompton.useCase("summarize")
+            prompton.prompt("greeting")
+            prompton.prompt("summarize")
             clock.advanceMillis(10_100)
-            prompton.useCase("greeting")
+            prompton.prompt("greeting")
 
             assertEquals(3, transport.requestCount())
             assertEquals(SnapshotFixtures.PRODUCTION_ETAG, transport.lastRequest().headers["if-none-match"])
@@ -100,25 +100,25 @@ class SnapshotCacheTest {
             StubTransport { request ->
                 if (request.url.contains("/summarize?")) {
                     okResponse(
-                        SnapshotFixtures.useCaseDocument(systemPrompt = "Updated greeter."),
+                        SnapshotFixtures.promptDocument(systemPrompt = "Updated greeter."),
                         etag = "\"summarize-v2\"",
                     )
                 } else {
                     okResponse(
-                        SnapshotFixtures.useCaseDocument(systemPrompt = "Original greeter."),
+                        SnapshotFixtures.promptDocument(systemPrompt = "Original greeter."),
                         etag = "\"greeting-v1\"",
                     )
                 }
             }
         PromptOn(config(transport, 10.seconds), FakeClock()).use { prompton ->
-            assertEquals("Original greeter.", prompton.useCase("greeting").messageTemplates!![0].content)
+            assertEquals("Original greeter.", prompton.prompt("greeting").messageTemplates!![0].content)
             assertEquals(
                 "Summarize:\\n{% for item in items %}- {{ item }}\\n{% endfor %}",
-                prompton.useCase("summarize").textTemplate,
+                prompton.prompt("summarize").textTemplate,
             )
             assertEquals(
                 "Original greeter.",
-                prompton.useCase("greeting").messageTemplates!![0].content,
+                prompton.prompt("greeting").messageTemplates!![0].content,
                 "a summarize fetch must not aggregate-merge and mutate greeting's fresh cache",
             )
             assertEquals(2, transport.requestCount())
@@ -134,13 +134,13 @@ class SnapshotCacheTest {
             }
         val clock = FakeClock()
         PromptOn(config(transport, 80.milliseconds), clock).use { prompton ->
-            prompton.useCase("greeting")
+            prompton.prompt("greeting")
             clock.advanceMillis(10_100)
-            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
+            assertEquals("openai/gpt-4o-mini", prompton.prompt("greeting").model)
             assertEquals(2, calls.get())
-            assertTrue(prompton.useCaseDocumentInfo().stale)
+            assertTrue(prompton.promptDocumentInfo().stale)
 
-            repeat(5) { prompton.useCase("greeting") }
+            repeat(5) { prompton.prompt("greeting") }
             assertEquals(2, calls.get())
         }
     }
@@ -150,7 +150,7 @@ class SnapshotCacheTest {
         val transport =
             StubTransport {
                 Thread.sleep(1_500)
-                okResponse(SnapshotFixtures.useCaseDocument(systemPrompt = "Late prompt."))
+                okResponse(SnapshotFixtures.promptDocument(systemPrompt = "Late prompt."))
             }
         PromptOn(
             PromptOnConfig(
@@ -165,11 +165,11 @@ class SnapshotCacheTest {
             ),
         ).use { prompton ->
             val started = System.nanoTime()
-            assertEquals("You are a friendly greeter.", prompton.useCase("greeting").messageTemplates!![0].content)
+            assertEquals("You are a friendly greeter.", prompton.prompt("greeting").messageTemplates!![0].content)
             val elapsed = (System.nanoTime() - started) / 1_000_000
             assertTrue(elapsed < 1_250, "stale fallback waited ${elapsed}ms")
             Thread.sleep(700)
-            assertEquals("You are a friendly greeter.", prompton.useCase("greeting").messageTemplates!![0].content)
+            assertEquals("You are a friendly greeter.", prompton.prompt("greeting").messageTemplates!![0].content)
         }
     }
 
@@ -186,14 +186,14 @@ class SnapshotCacheTest {
                 bundlePath = bundle,
             ),
         ).use { prompton ->
-            val pin = prompton.useCase("greeting")
-            assertEquals("openai/gpt-4o-mini", pin.model)
-            assertEquals("openrouter", pin.provider)
-            assertEquals(2, pin.promptVersionNumber)
-            assertNull(pin.deploymentId)
-            assertNull(pin.modelId)
-            assertNull(pin.promptVersionId)
-            assertEquals("Hi Ada", pin.messages(mapOf("name" to "Ada")).single().content)
+            val prompt = prompton.prompt("greeting")
+            assertEquals("openai/gpt-4o-mini", prompt.model)
+            assertEquals("openrouter", prompt.provider)
+            assertEquals(2, prompt.promptVersionNumber)
+            assertNull(prompt.deploymentId)
+            assertNull(prompt.modelId)
+            assertNull(prompt.promptVersionId)
+            assertEquals("Hi Ada", prompt.messages(mapOf("name" to "Ada")).single().content)
         }
     }
 
@@ -212,8 +212,8 @@ class SnapshotCacheTest {
             }
 
         PromptOn(config(transport).copy(diskCacheEnabled = true, diskCachePath = cache), FakeClock()).use { prompton ->
-            assertEquals("anthropic/claude-sonnet-4", prompton.useCase("support_reply").model)
-            prompton.exportUseCaseDocument(exported)
+            assertEquals("anthropic/claude-sonnet-4", prompton.prompt("support_reply").model)
+            prompton.exportPromptDocument(exported)
         }
 
         val entries = Ptn.asObject(Ptn.parseObject(Files.readString(cache))["entries"])!!
@@ -225,7 +225,7 @@ class SnapshotCacheTest {
         PromptOn(config(failing).copy(diskCacheEnabled = true, diskCachePath = cache), FakeClock()).use { prompton ->
             assertEquals(
                 "Reply to pricing for pro.",
-                prompton.useCase("support_reply").messages(mapOf("question" to "pricing", "plan" to "pro"))[1].content,
+                prompton.prompt("support_reply").messages(mapOf("question" to "pricing", "plan" to "pro"))[1].content,
             )
         }
     }
@@ -234,9 +234,9 @@ class SnapshotCacheTest {
     fun `cold failure without fallback is explicit and gated`() {
         val transport = StubTransport { HttpResponse(503, emptyMap(), "") }
         PromptOn(config(transport), FakeClock()).use { prompton ->
-            assertFailsWith<UseCaseDocumentUnavailableException> { prompton.useCase("greeting") }
+            assertFailsWith<PromptDocumentUnavailableException> { prompton.prompt("greeting") }
             assertEquals(1, transport.requestCount())
-            assertFailsWith<UseCaseDocumentUnavailableException> { prompton.useCase("greeting") }
+            assertFailsWith<PromptDocumentUnavailableException> { prompton.prompt("greeting") }
             assertEquals(1, transport.requestCount())
         }
     }
@@ -250,7 +250,7 @@ class SnapshotCacheTest {
             }
         PromptOn(config(transport), FakeClock()).use { prompton ->
             runConcurrent(24) {
-                assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
+                assertEquals("openai/gpt-4o-mini", prompton.prompt("greeting").model)
             }
             assertEquals(1, transport.requestCount())
         }
@@ -261,15 +261,15 @@ class SnapshotCacheTest {
         val transport =
             StubTransport { request ->
                 if (request.url.contains("/greeting?")) Thread.sleep(900)
-                okResponse(SnapshotFixtures.twoUseCases(), etag = "\"${request.url}\"")
+                okResponse(SnapshotFixtures.twoPrompts(), etag = "\"${request.url}\"")
             }
         PromptOn(config(transport), FakeClock()).use { prompton ->
             val pool = Executors.newFixedThreadPool(2)
             try {
-                val slow = pool.submit<String> { prompton.useCase("greeting").model!! }
+                val slow = pool.submit<String> { prompton.prompt("greeting").model!! }
                 Thread.sleep(50)
                 val started = System.nanoTime()
-                assertEquals("openai/gpt-4o-mini", prompton.useCase("summarize").model)
+                assertEquals("openai/gpt-4o-mini", prompton.prompt("summarize").model)
                 val elapsed = (System.nanoTime() - started) / 1_000_000
                 assertTrue(elapsed < 400, "summarize waited behind greeting for ${elapsed}ms")
                 assertEquals("openai/gpt-4o-mini", slow.get(3, TimeUnit.SECONDS))
@@ -281,7 +281,7 @@ class SnapshotCacheTest {
 
     @Test
     fun `scope mismatch is rejected and bundle fallback keeps serving`() {
-        val transport = StubTransport { okResponse(SnapshotFixtures.useCaseDocument(environment = "staging")) }
+        val transport = StubTransport { okResponse(SnapshotFixtures.promptDocument(environment = "staging")) }
         val clock = FakeClock()
         PromptOn(
             PromptOnConfig(
@@ -297,8 +297,8 @@ class SnapshotCacheTest {
             clock,
         ).use { prompton ->
             clock.advanceMillis(10_100)
-            assertEquals(UseCaseSource.BUNDLE, prompton.useCase("greeting").source)
-            assertTrue(prompton.useCaseDocumentInfo().stale)
+            assertEquals(PromptSource.BUNDLE, prompton.prompt("greeting").source)
+            assertTrue(prompton.promptDocumentInfo().stale)
         }
     }
 
@@ -309,30 +309,30 @@ class SnapshotCacheTest {
             StubTransport { request ->
                 if (request.url.contains("/summarize?")) {
                     okResponse(
-                        SnapshotFixtures.useCaseDocument(systemPrompt = "Updated greeter."),
+                        SnapshotFixtures.promptDocument(systemPrompt = "Updated greeter."),
                         etag = "\"summarize-v2\"",
                     )
                 } else {
                     okResponse(
-                        SnapshotFixtures.useCaseDocument(systemPrompt = "Original greeter."),
+                        SnapshotFixtures.promptDocument(systemPrompt = "Original greeter."),
                         etag = "\"greeting-v1\"",
                     )
                 }
             }
         PromptOn(config(transport).copy(diskCacheEnabled = true, diskCachePath = cache), FakeClock()).use { prompton ->
-            assertEquals("Original greeter.", prompton.useCase("greeting").messageTemplates!![0].content)
+            assertEquals("Original greeter.", prompton.prompt("greeting").messageTemplates!![0].content)
             assertEquals(
                 "Summarize:\\n{% for item in items %}- {{ item }}\\n{% endfor %}",
-                prompton.useCase("summarize").textTemplate,
+                prompton.prompt("summarize").textTemplate,
             )
         }
 
         val failing = StubTransport { HttpResponse(503, emptyMap(), "") }
         PromptOn(config(failing).copy(diskCacheEnabled = true, diskCachePath = cache), FakeClock()).use { prompton ->
-            assertEquals("Original greeter.", prompton.useCase("greeting").messageTemplates!![0].content)
+            assertEquals("Original greeter.", prompton.prompt("greeting").messageTemplates!![0].content)
             assertEquals(
                 "Summarize:\\n{% for item in items %}- {{ item }}\\n{% endfor %}",
-                prompton.useCase("summarize").textTemplate,
+                prompton.prompt("summarize").textTemplate,
             )
             val entries = Ptn.asObject(Ptn.parseObject(Files.readString(cache))["entries"])!!
             assertEquals(setOf("greeting", "summarize"), entries.keys)
@@ -350,7 +350,7 @@ class SnapshotCacheTest {
 
     @Test
     fun `default transport enforces one second config timeout against a slow local server`() {
-        SlowServer(1_500, SnapshotFixtures.useCaseDocument()).use { server ->
+        SlowServer(1_500, SnapshotFixtures.promptDocument()).use { server ->
             PromptOn(
                 PromptOnConfig(
                     apiKey = "ptn_fixture_secret",
@@ -363,7 +363,7 @@ class SnapshotCacheTest {
                 ),
             ).use { prompton ->
                 val started = System.nanoTime()
-                assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
+                assertEquals("openai/gpt-4o-mini", prompton.prompt("greeting").model)
                 val elapsed = (System.nanoTime() - started) / 1_000_000
                 assertTrue(elapsed < 1_250, "default transport waited ${elapsed}ms")
             }
@@ -372,7 +372,7 @@ class SnapshotCacheTest {
 
     private fun writeBundle(): Path {
         val path = tempDir.resolve("prompts.production.json")
-        SnapshotFilesForTest.write(path, SnapshotFixtures.useCaseDocument())
+        SnapshotFilesForTest.write(path, SnapshotFixtures.promptDocument())
         return path
     }
 

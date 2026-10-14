@@ -127,17 +127,17 @@ public data class SdkInfo(
 public data class LogRecord
     @JvmOverloads
     constructor(
-        val useCase: String,
+        val promptKey: String,
         val model: String,
         val status: LogStatus,
         val startedAt: Instant,
         /** Filled with a fresh UUIDv7 when absent. It is the idempotency key. */
         val id: String? = null,
-        val kind: UseCaseKind? = null,
+        val kind: PromptKind? = null,
         val deploymentRevision: String? = null,
-        val prompt: String? = null,
+        val template: String? = null,
         val promptVersionNumber: Int? = null,
-        val source: UseCaseSource? = null,
+        val source: PromptSource? = null,
         val provider: String? = null,
         val modelUsed: String? = null,
         val upstreamProvider: String? = null,
@@ -157,7 +157,7 @@ public data class LogRecord
         val sdk: SdkInfo? = null,
     ) {
         init {
-            require(useCase.isNotBlank()) { "a monitoring log needs a prompt_key" }
+            require(promptKey.isNotBlank()) { "a monitoring log needs a prompt_key" }
             require(model.isNotBlank()) { "a monitoring log needs a model" }
         }
 
@@ -165,13 +165,13 @@ public data class LogRecord
         public fun toJsonObject(): JsonObject {
             val fields = LinkedHashMap<String, JsonElement>()
             fields["id"] = JsonPrimitive(id ?: UuidV7.generate())
-            fields["prompt_key"] = JsonPrimitive(useCase)
+            fields["prompt_key"] = JsonPrimitive(promptKey)
             fields["model"] = JsonPrimitive(model)
             fields["status"] = JsonPrimitive(status.wire)
             fields["started_at"] = JsonPrimitive(Iso8601.format(startedAt))
             put(fields, "kind", kind?.wire)
             deploymentRevision?.let { fields["deployment_revision"] = JsonPrimitive(it) }
-            put(fields, "template", prompt)
+            put(fields, "template", template)
             promptVersionNumber?.let { fields["prompt_version_number"] = JsonPrimitive(it) }
             put(fields, "source", source?.wire)
             put(fields, "provider", provider)
@@ -250,7 +250,7 @@ public data class LogRecord
             if (message.hasContent) fields["content"] = Ptn.toElement(message.contentValue)
             message.name?.let { fields["name"] = JsonPrimitive(it) }
             message.toolCallId?.let { fields["tool_call_id"] = JsonPrimitive(it) }
-            if (message.hasToolCalls || message.toolCalls.isNotEmpty()) {
+            if (message.toolCalls.isNotEmpty()) {
                 fields["tool_calls"] = JsonArray(message.toolCalls.map { Ptn.toElement(it) })
             }
             return JsonObject(fields)
@@ -464,7 +464,7 @@ public data class TrackMeta
     )
 
 /**
- * The recorder handed to the block of [UseCase.track].
+ * The recorder handed to the block of [Prompt.track].
  *
  * Set [result] with what the provider returned and, when the call failed in a way that is not an
  * exception, [error]. Anything the block throws is logged as `app` and rethrown unchanged.

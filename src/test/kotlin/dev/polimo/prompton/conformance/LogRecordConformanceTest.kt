@@ -8,11 +8,11 @@ import dev.polimo.prompton.PayloadPolicy
 import dev.polimo.prompton.PromptOn
 import dev.polimo.prompton.PromptOnConfig
 import dev.polimo.prompton.PromptOnMode
+import dev.polimo.prompton.PromptSource
 import dev.polimo.prompton.Result
 import dev.polimo.prompton.SdkInfo
 import dev.polimo.prompton.TrackMeta
 import dev.polimo.prompton.Usage
-import dev.polimo.prompton.UseCaseSource
 import dev.polimo.prompton.assertJsonEquivalent
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -36,10 +36,10 @@ class LogRecordConformanceTest {
     fun `chat success`() {
         val clock = FakeClock()
         val record =
-            build(clock, UseCaseSource.REMOTE) { prompton ->
-                val useCase = prompton.useCase("greeting")
-                val messages = useCase.messages(mapOf("name" to "Ada"))
-                useCase.trackBlocking(
+            build(clock, PromptSource.REMOTE) { prompton ->
+                val prompt = prompton.prompt("greeting")
+                val messages = prompt.messages(mapOf("name" to "Ada"))
+                prompt.trackBlocking(
                     TrackMeta(
                         id = "0198f2a1-1111-7000-8000-000000000001",
                         variables = mapOf("name" to "Ada"),
@@ -83,10 +83,10 @@ class LogRecordConformanceTest {
     fun `chat error without output`() {
         val clock = FakeClock()
         val record =
-            build(clock, UseCaseSource.REMOTE) { prompton ->
-                val useCase = prompton.useCase("greeting")
-                val messages = useCase.messages(mapOf("name" to "Ada"))
-                useCase.trackBlocking(
+            build(clock, PromptSource.REMOTE) { prompton ->
+                val prompt = prompton.prompt("greeting")
+                val messages = prompt.messages(mapOf("name" to "Ada"))
+                prompt.trackBlocking(
                     TrackMeta(
                         id = "0198f2a1-1111-7000-8000-000000000002",
                         variables = mapOf("name" to "Ada"),
@@ -112,10 +112,10 @@ class LogRecordConformanceTest {
     fun `chat error with usage preserved`() {
         val clock = FakeClock()
         val record =
-            build(clock, UseCaseSource.REMOTE) { prompton ->
-                val useCase = prompton.useCase("greeting")
-                val messages = useCase.messages(mapOf("name" to "Ada"))
-                useCase.trackBlocking(
+            build(clock, PromptSource.REMOTE) { prompton ->
+                val prompt = prompton.prompt("greeting")
+                val messages = prompt.messages(mapOf("name" to "Ada"))
+                prompt.trackBlocking(
                     TrackMeta(
                         id = "0198f2a1-1111-7000-8000-000000000003",
                         variables = mapOf("name" to "Ada"),
@@ -148,14 +148,14 @@ class LogRecordConformanceTest {
         val clock = FakeClock()
         val text = "PromptOn is the control plane for your app's LLM prompts."
         val record =
-            build(clock, UseCaseSource.DISK) { prompton ->
+            build(clock, PromptSource.DISK) { prompton ->
                 // The golden record was generated against the SDK's default payload policy, so this
                 // case overrides the document's `hash` policy for `embed` and keeps the variables raw.
-                val useCase =
-                    prompton.useCase("embed").copy(payloadPolicy = PayloadPolicy.DEFAULT).also {
+                val prompt =
+                    prompton.prompt("embed").copy(payloadPolicy = PayloadPolicy.DEFAULT).also {
                         it.owner = prompton
                     }
-                useCase.trackBlocking(
+                prompt.trackBlocking(
                     TrackMeta(
                         id = "0198f2a1-1111-7000-8000-000000000004",
                         variables = mapOf("text" to text),
@@ -218,11 +218,11 @@ class LogRecordConformanceTest {
 
     private fun build(
         clock: FakeClock,
-        source: UseCaseSource,
+        source: PromptSource,
         block: (PromptOn) -> Unit,
     ): JsonObject =
         PromptOn(config(PromptOnMode.TEST), clock).use { prompton ->
-            prompton.putUseCaseDocument(productionDocument, source)
+            prompton.putPromptDocument(productionDocument, source)
             block(prompton)
             prompton.capturedRecords().single()
         }

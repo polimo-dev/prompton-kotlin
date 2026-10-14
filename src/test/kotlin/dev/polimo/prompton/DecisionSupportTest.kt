@@ -39,31 +39,31 @@ class DecisionSupportTest {
     @Test
     fun `Decision prompts resolve and prepare native provider requests from an injected document`() {
         PromptOn(config(mode = PromptOnMode.TEST), FakeClock()).use { prompton ->
-            prompton.putUseCaseDocument(decisionDocument(), UseCaseSource.MANUAL)
-            val useCase = prompton.useCase("sentiment")
+            prompton.putPromptDocument(decisionDocument(), PromptSource.MANUAL)
+            val prompt = prompton.prompt("sentiment")
 
-            assertEquals(UseCaseKind.DECISION, useCase.kind)
-            assertEquals("decisions", useCase.api)
-            assertEquals("/api/v1/systemone", useCase.requestPath)
-            assertEquals("typesafe/jev-1.13", useCase.model)
+            assertEquals(PromptKind.DECISION, prompt.kind)
+            assertEquals("decisions", prompt.api)
+            assertEquals("/api/v1/systemone", prompt.requestPath)
+            assertEquals("typesafe/jev-1.13", prompt.model)
 
-            val rendered = useCase.decision(mapOf("diary" to "A bright walk."))
+            val rendered = prompt.decision(mapOf("diary" to "A bright walk."))
             assertEquals(mapOf("diary" to "A bright walk.", "static_key" to "literal"), rendered.state)
             assertEquals("Classify A bright walk..", (rendered.questions["mood"] as Map<*, *>)["instructions"])
             assertEquals("__proto__", rendered.questions.keys.last())
 
             @Suppress("UNCHECKED_CAST")
-            val rawTemplateState = useCase.decisionTemplate!!.state as MutableMap<String, Any?>
+            val rawTemplateState = prompt.decisionTemplate!!.state as MutableMap<String, Any?>
             assertFailsWith<RuntimeException> { rawTemplateState["diary"] = "poisoned" }
 
             @Suppress("UNCHECKED_CAST")
             val mutableRenderedState = rendered.state as MutableMap<String, Any?>
             mutableRenderedState["diary"] = "changed after render"
-            val renderedAgain = useCase.decision(mapOf("diary" to "A bright walk.")).state as Map<*, *>
+            val renderedAgain = prompt.decision(mapOf("diary" to "A bright walk.")).state as Map<*, *>
             assertEquals("A bright walk.", renderedAgain["diary"])
 
             val request =
-                useCase.request(
+                prompt.request(
                     mapOf("diary" to "A bright walk."),
                     PreparedRequestOptions(
                         providerOptions = mapOf("only" to null),
@@ -91,20 +91,20 @@ class DecisionSupportTest {
         val disk = tempDir.resolve("prompts.production.json")
         Files.writeString(disk, decisionDocument().replace("typesafe/jev-1.13", "typesafe/from-disk"))
         PromptOn(config(diskCache = disk), FakeClock()).use { prompton ->
-            assertEquals("typesafe/from-disk", prompton.useCase("sentiment").model)
+            assertEquals("typesafe/from-disk", prompton.prompt("sentiment").model)
         }
 
         val bundle = tempDir.resolve("bundle.json")
         Files.writeString(bundle, decisionDocument().replace("typesafe/jev-1.13", "typesafe/from-bundle"))
         PromptOn(config(bundle = bundle), FakeClock()).use { prompton ->
-            assertEquals("typesafe/from-bundle", prompton.useCase("sentiment").model)
+            assertEquals("typesafe/from-bundle", prompton.prompt("sentiment").model)
         }
 
         val transport = StubTransport { HttpResponse(200, mapOf("etag" to "\"decision\""), decisionDocument()) }
         PromptOn(config(transport), FakeClock()).use { prompton ->
-            val useCase = prompton.useCase("sentiment")
-            assertEquals(UseCaseSource.REMOTE, useCase.source)
-            assertEquals("typesafe/jev-1.13", useCase.model)
+            val prompt = prompton.prompt("sentiment")
+            assertEquals(PromptSource.REMOTE, prompt.source)
+            assertEquals("typesafe/jev-1.13", prompt.model)
             assertTrue(transport.lastRequest().url.contains("/prompts/sentiment?environment=production"))
         }
     }
@@ -112,43 +112,43 @@ class DecisionSupportTest {
     @Test
     fun `prepared request rejects malformed Decision metadata and payloads`() {
         PromptOn(config(mode = PromptOnMode.TEST), FakeClock()).use { prompton ->
-            prompton.putUseCaseDocument(decisionDocument(), UseCaseSource.MANUAL)
-            val useCase = prompton.useCase("sentiment")
+            prompton.putPromptDocument(decisionDocument(), PromptSource.MANUAL)
+            val prompt = prompton.prompt("sentiment")
 
             assertFailsWith<PreparedRequestException> {
-                useCase.request(mapOf("diary" to "hi"), PreparedRequestOptions(params = mapOf("temperature" to null)))
+                prompt.request(mapOf("diary" to "hi"), PreparedRequestOptions(params = mapOf("temperature" to null)))
             }
             assertFailsWith<PreparedRequestException> {
-                useCase.request(mapOf("diary" to "hi"), PreparedRequestOptions(params = mapOf("user" to null)))
+                prompt.request(mapOf("diary" to "hi"), PreparedRequestOptions(params = mapOf("user" to null)))
             }
             assertFailsWith<PreparedRequestException> {
-                useCase.request(mapOf("diary" to "hi"), PreparedRequestOptions(params = mapOf("state" to "bad")))
+                prompt.request(mapOf("diary" to "hi"), PreparedRequestOptions(params = mapOf("state" to "bad")))
             }
         }
 
         PromptOn(config(mode = PromptOnMode.TEST), FakeClock()).use { prompton ->
-            prompton.putUseCaseDocument(
+            prompton.putPromptDocument(
                 decisionDocument().replace(
                     "\"strong\"",
                     "null",
                 ),
-                UseCaseSource.MANUAL,
+                PromptSource.MANUAL,
             )
             assertFailsWith<PreparedRequestException> {
-                prompton.useCase("sentiment").request(mapOf("diary" to "hi"))
+                prompton.prompt("sentiment").request(mapOf("diary" to "hi"))
             }
         }
 
         assertFailsWith<UnsupportedSchemaVersionException> {
-            UseCaseDocument.parse(decisionDocument().replace("\"schema_version\": 1", "\"schema_version\": 5"))
+            PromptDocument.parse(decisionDocument().replace("\"schema_version\": 1", "\"schema_version\": 5"))
         }
 
         PromptOn(config(), FakeClock()).use { prompton ->
-            prompton.putUseCaseDocument(decisionDocumentWithoutPinnedKind(), UseCaseSource.MANUAL)
-            val useCase = prompton.useCase("sentiment")
-            assertEquals(UseCaseKind.DECISION, useCase.kind)
+            prompton.putPromptDocument(decisionDocumentWithoutPinnedKind(), PromptSource.MANUAL)
+            val prompt = prompton.prompt("sentiment")
+            assertEquals(PromptKind.DECISION, prompt.kind)
             assertFailsWith<PreparedRequestException> {
-                useCase.request(mapOf("diary" to "hi"))
+                prompt.request(mapOf("diary" to "hi"))
             }
         }
     }
@@ -156,9 +156,9 @@ class DecisionSupportTest {
     @Test
     fun `Decision provider results and inputDecision are captured in monitoring logs`() {
         PromptOn(config(mode = PromptOnMode.TEST), FakeClock()).use { prompton ->
-            prompton.putUseCaseDocument(decisionDocument(), UseCaseSource.MANUAL)
-            val useCase = prompton.useCase("sentiment")
-            val inputDecision = useCase.decision(mapOf("diary" to "A bright walk."))
+            prompton.putPromptDocument(decisionDocument(), PromptSource.MANUAL)
+            val prompt = prompton.prompt("sentiment")
+            val inputDecision = prompt.decision(mapOf("diary" to "A bright walk."))
             val answers =
                 mapOf(
                     "mood" to
@@ -178,7 +178,7 @@ class DecisionSupportTest {
                     "usage" to mapOf("input_tokens" to 12, "output_tokens" to 5, "cost" to 0),
                 )
 
-            useCase.trackBlocking(TrackMeta(inputDecision = inputDecision)) { call ->
+            prompt.trackBlocking(TrackMeta(inputDecision = inputDecision)) { call ->
                 call.result(Result.fromDecisions(raw))
                 "ok"
             }
@@ -301,8 +301,8 @@ class DecisionSupportTest {
             assertEquals("decisions", first.providerPreparedRequest["api"])
             assertEquals("POST", first.providerPreparedRequest["method"])
 
-            val cached = prompton.useCaseRemoteBlocking("sentiment")
-            assertEquals(UseCaseKind.DECISION, cached.kind)
+            val cached = prompton.promptRemoteBlocking("sentiment")
+            assertEquals(PromptKind.DECISION, cached.kind)
             assertEquals("hello", cached.decision().state)
 
             @Suppress("UNCHECKED_CAST")
@@ -313,7 +313,7 @@ class DecisionSupportTest {
             val preparedBody = cached.providerPreparedRequest["body"] as MutableMap<String, Any?>
             assertFailsWith<RuntimeException> { preparedBody["model"] = "poisoned" }
 
-            val cachedAgain = prompton.useCaseRemoteBlocking("sentiment")
+            val cachedAgain = prompton.promptRemoteBlocking("sentiment")
             assertEquals("decisions", cachedAgain.providerPreparedRequest["api"])
             assertEquals("typesafe/jev-1.13", (cachedAgain.providerPreparedRequest["body"] as Map<*, *>)["model"])
             assertEquals(2, transport.posts().size, "server smoke path plus one cached raw Decision fetch")

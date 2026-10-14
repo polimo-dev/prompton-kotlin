@@ -68,7 +68,7 @@ class LifecycleTest {
         val baselineThreads = promptonThreads()
         val reclaimedBefore = PromptOnLifecycle.reclaimedCount()
 
-        repeat(40) { runCatching { PromptOn(config()).useCase("greeting") } }
+        repeat(40) { runCatching { PromptOn(config()).prompt("greeting") } }
         assertTrue(promptonThreads() > baselineThreads, "the forgotten instances did start threads")
 
         collectUntil("30 of the 40 forgotten instances to be reclaimed") {

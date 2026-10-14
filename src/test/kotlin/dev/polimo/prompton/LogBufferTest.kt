@@ -37,7 +37,7 @@ class LogBufferTest {
         index: Int,
         status: LogStatus = LogStatus.OK,
     ) = LogRecord(
-        useCase = "greeting",
+        promptKey = "greeting",
         model = "openai/gpt-4o-mini",
         status = status,
         startedAt = startedAt,
@@ -47,7 +47,7 @@ class LogBufferTest {
 
     private fun closedTransportRecord() =
         LogRecord(
-            useCase = "greeting",
+            promptKey = "greeting",
             model = "openai/gpt-4o-mini",
             status = LogStatus.ERROR,
             startedAt = startedAt,
@@ -79,7 +79,7 @@ class LogBufferTest {
                 HttpResponse(
                     200,
                     mapOf("etag" to SnapshotFixtures.PRODUCTION_ETAG),
-                    SnapshotFixtures.useCaseDocument(),
+                    SnapshotFixtures.promptDocument(),
                 )
             } else {
                 onPost(request)

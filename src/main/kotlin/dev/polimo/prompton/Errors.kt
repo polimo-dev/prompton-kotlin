@@ -10,7 +10,7 @@ public open class PromptOnException(
  * No prompt document is available from any tier: PromptOn is unreachable and neither the disk
  * cache nor a bundled document is usable for this project and environment.
  */
-public class UseCaseDocumentUnavailableException(
+public class PromptDocumentUnavailableException(
     public val environment: String,
     message: String =
         "no PromptOn prompt document for environment '$environment': the server is unreachable and " +
@@ -18,26 +18,26 @@ public class UseCaseDocumentUnavailableException(
 ) : PromptOnException(message)
 
 /** The prompt document has no prompt with this key. */
-public class UnknownUseCaseException(
-    public val useCase: String,
-) : PromptOnException("unknown prompt: $useCase")
+public class UnknownPromptException(
+    public val promptKey: String,
+) : PromptOnException("unknown prompt: $promptKey")
 
 /** The prompt exists but has no live deployment in this environment. */
-public class UnresolvedUseCaseException(
-    public val useCase: String,
-) : PromptOnException("prompt '$useCase' has no live deployment in this environment")
+public class UnresolvedPromptException(
+    public val promptKey: String,
+) : PromptOnException("prompt '$promptKey' has no live deployment in this environment")
 
 /**
- * The live deployment pins no prompt version under the requested name. There is never a silent
+ * The live deployment pins no prompt version under the requested template name. There is never a silent
  * fallback to `default`.
  */
-public class UnknownPromptException(
-    public val useCase: String,
-    public val prompt: String,
-    public val promptNames: List<String>,
+public class UnknownTemplateException(
+    public val promptKey: String,
+    public val template: String,
+    public val templateNames: List<String>,
 ) : PromptOnException(
-        "the live deployment of '$useCase' pins no prompt named \"$prompt\" — " +
-            "available prompts: ${promptNames.joinToString(", ")}",
+        "the live deployment of '$promptKey' pins no template named \"$template\" — " +
+            "available templates: ${templateNames.joinToString(", ")}",
     )
 
 /** The template reads a variable the call did not supply. */

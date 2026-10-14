@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 /** The `POST /prompts/{key}/render` client: the simple path, cached like the prompt document. */
-class UseCasePromptClientTest {
+class PromptRenderClientTest {
     private fun config(transport: HttpTransport) =
         PromptOnConfig(
             apiKey = "ptn_fixture_secret",
@@ -67,24 +67,24 @@ class UseCasePromptClientTest {
         val transport = resolveTransport(response)
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            val useCase = prompton.useCaseRemoteBlocking("greeting")
-            assertEquals("greeting", useCase.key)
-            assertEquals("openai/gpt-4o-mini", useCase.model)
-            assertEquals("v2026.09.30-3", useCase.deploymentRevision)
-            assertEquals(listOf("default", "ko"), useCase.promptNames)
-            assertEquals(UseCaseSource.DISK, useCase.source)
-            assertEquals("Say hello to Ada.", useCase.messages(mapOf("name" to "Ada"))[1].content)
+            val prompt = prompton.promptRemoteBlocking("greeting")
+            assertEquals("greeting", prompt.key)
+            assertEquals("openai/gpt-4o-mini", prompt.model)
+            assertEquals("v2026.09.30-3", prompt.deploymentRevision)
+            assertEquals(listOf("default", "ko"), prompt.templateNames)
+            assertEquals(PromptSource.DISK, prompt.source)
+            assertEquals("Say hello to Ada.", prompt.messages(mapOf("name" to "Ada"))[1].content)
 
             val body = Ptn.parseObject(transport.posts().single().body!!)
             assertNull(body["variables"], "the cached path asks for the raw template")
             assertNull(body["prompt_key"], "the prompt key lives in the path")
             assertEquals("https://prompton.test/api/v1/prompts/greeting/render", transport.posts().single().url)
 
-            repeat(4) { prompton.useCaseRemoteBlocking("greeting") }
+            repeat(4) { prompton.promptRemoteBlocking("greeting") }
             assertEquals(1, transport.posts().size, "the answer is cached for the cache TTL")
 
             clock.advanceMillis(11_000)
-            prompton.useCaseRemoteBlocking("greeting")
+            prompton.promptRemoteBlocking("greeting")
             assertEquals(2, transport.posts().size, "past the TTL it asks again")
         }
     }
@@ -103,7 +103,7 @@ class UseCasePromptClientTest {
         PromptOn(config(transport), FakeClock()).use { prompton ->
             val error =
                 assertFailsWith<PromptOnException> {
-                    prompton.useCaseRemoteBlocking("greeting")
+                    prompton.promptRemoteBlocking("greeting")
                 }
             assertTrue(error.message!!.contains("deployment revision must be a string"))
         }
@@ -132,26 +132,26 @@ class UseCasePromptClientTest {
             )
         val transport = resolveTransport(response)
         PromptOn(config(transport), FakeClock()).use { prompton ->
-            val useCase = prompton.useCaseRemoteBlocking("greeting")
-            assertNull(useCase.deploymentId)
-            assertNull(useCase.modelId)
-            assertNull(useCase.promptVersionId)
-            assertEquals(2, useCase.promptVersionNumber)
-            assertEquals("openai/gpt-4o-mini", useCase.model)
-            assertEquals("openrouter", useCase.provider)
-            assertEquals("Say hello", useCase.messages().single().content)
+            val prompt = prompton.promptRemoteBlocking("greeting")
+            assertNull(prompt.deploymentId)
+            assertNull(prompt.modelId)
+            assertNull(prompt.promptVersionId)
+            assertEquals(2, prompt.promptVersionNumber)
+            assertEquals("openai/gpt-4o-mini", prompt.model)
+            assertEquals("openrouter", prompt.provider)
+            assertEquals("Say hello", prompt.messages().single().content)
         }
     }
 
     @Test
-    fun `each prompt prompt and environment is cached separately`() {
+    fun `each prompt key and environment is cached separately`() {
         val response = AtomicReference(HttpResponse(200, emptyMap(), rawAnswer))
         val transport = resolveTransport(response)
         PromptOn(config(transport), FakeClock()).use { prompton ->
-            prompton.useCaseRemoteBlocking("greeting")
-            prompton.useCaseRemoteBlocking("greeting", prompt = "ko")
-            prompton.useCaseRemoteBlocking("greeting", environment = "staging")
-            prompton.useCaseRemoteBlocking("greeting")
+            prompton.promptRemoteBlocking("greeting")
+            prompton.promptRemoteBlocking("greeting", template = "ko")
+            prompton.promptRemoteBlocking("greeting", environment = "staging")
+            prompton.promptRemoteBlocking("greeting")
             assertEquals(3, transport.posts().size)
         }
     }
@@ -169,10 +169,10 @@ class UseCasePromptClientTest {
             }
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            prompton.useCaseRemoteBlocking("greeting")
+            prompton.promptRemoteBlocking("greeting")
             clock.advanceMillis(11_000)
-            val useCase = prompton.useCaseRemoteBlocking("greeting")
-            assertEquals("openai/gpt-4o-mini", useCase.model, "the cached answer keeps serving")
+            val prompt = prompton.promptRemoteBlocking("greeting")
+            assertEquals("openai/gpt-4o-mini", prompt.model, "the cached answer keeps serving")
         }
     }
 
@@ -189,16 +189,16 @@ class UseCasePromptClientTest {
             }
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            prompton.useCaseRemoteBlocking("greeting")
+            prompton.promptRemoteBlocking("greeting")
             clock.advanceMillis(11_000)
 
             repeat(10) {
-                assertEquals("openai/gpt-4o-mini", prompton.useCaseRemoteBlocking("greeting").model)
+                assertEquals("openai/gpt-4o-mini", prompton.promptRemoteBlocking("greeting").model)
             }
             assertEquals(2, transport.posts().size, "one 429, then silence for Retry-After")
 
             clock.advanceMillis(31_000)
-            prompton.useCaseRemoteBlocking("greeting")
+            prompton.promptRemoteBlocking("greeting")
             assertEquals(3, transport.posts().size, "past Retry-After it asks once more")
         }
     }
@@ -216,22 +216,22 @@ class UseCasePromptClientTest {
             }
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            prompton.useCaseRemoteBlocking("greeting")
+            prompton.promptRemoteBlocking("greeting")
 
             clock.advanceMillis(11_000)
-            repeat(5) { prompton.useCaseRemoteBlocking("greeting") }
+            repeat(5) { prompton.promptRemoteBlocking("greeting") }
             assertEquals(2, transport.posts().size, "one failed attempt, then the backoff holds")
 
             clock.advanceMillis(5_000)
-            prompton.useCaseRemoteBlocking("greeting")
+            prompton.promptRemoteBlocking("greeting")
             assertEquals(2, transport.posts().size, "still inside the ten second window")
 
             clock.advanceMillis(6_000)
-            prompton.useCaseRemoteBlocking("greeting")
+            prompton.promptRemoteBlocking("greeting")
             assertEquals(3, transport.posts().size, "the backoff has passed")
 
             clock.advanceMillis(11_000)
-            repeat(3) { prompton.useCaseRemoteBlocking("greeting") }
+            repeat(3) { prompton.promptRemoteBlocking("greeting") }
             assertEquals(3, transport.posts().size, "the second backoff doubles to twenty seconds")
         }
     }
@@ -249,9 +249,9 @@ class UseCasePromptClientTest {
             }
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            prompton.useCaseRemoteBlocking("greeting")
+            prompton.promptRemoteBlocking("greeting")
             clock.advanceMillis(11_000)
-            assertEquals("openai/gpt-4o-mini", prompton.useCaseRemoteBlocking("greeting").model)
+            assertEquals("openai/gpt-4o-mini", prompton.promptRemoteBlocking("greeting").model)
         }
     }
 
@@ -268,17 +268,17 @@ class UseCasePromptClientTest {
         }
         val clock = FakeClock()
         PromptOn(config(transport), clock).use { prompton ->
-            val error = assertFailsWith<PromptOnApiException> { prompton.useCaseRemoteBlocking("greeting") }
+            val error = assertFailsWith<PromptOnApiException> { prompton.promptRemoteBlocking("greeting") }
             assertEquals(503, error.status)
 
             repeat(3) {
-                val blocked = assertFailsWith<PromptOnException> { prompton.useCaseRemoteBlocking("greeting") }
+                val blocked = assertFailsWith<PromptOnException> { prompton.promptRemoteBlocking("greeting") }
                 assertTrue(blocked.message!!.contains("nothing is cached"), blocked.message!!)
             }
             assertEquals(1, transport.posts().size, "a failing server is not called again inside the window")
 
             clock.advanceMillis(11_000)
-            assertFailsWith<PromptOnApiException> { prompton.useCaseRemoteBlocking("greeting") }
+            assertFailsWith<PromptOnApiException> { prompton.promptRemoteBlocking("greeting") }
             assertEquals(2, transport.posts().size, "past the backoff it tries once more")
         }
     }
@@ -299,8 +299,8 @@ class UseCasePromptClientTest {
             }
         PromptOn(config(transport), FakeClock()).use { prompton ->
             repeat(3) {
-                val error = assertFailsWith<UnknownUseCaseException> { prompton.useCaseRemoteBlocking("nope") }
-                assertEquals("nope", error.useCase)
+                val error = assertFailsWith<UnknownPromptException> { prompton.promptRemoteBlocking("nope") }
+                assertEquals("nope", error.promptKey)
             }
             assertEquals(3, transport.posts().size, "a 4xx is about the request, so every call asks")
         }
@@ -322,7 +322,7 @@ class UseCasePromptClientTest {
             repeat(3) {
                 val server = prompton.promptOnServerBlocking("greeting", variables = mapOf("name" to "Ada"))
                 assertEquals("greeting", server.key)
-                assertEquals(UseCaseSource.DISK, server.source)
+                assertEquals(PromptSource.DISK, server.source)
                 assertEquals("Say hello to Ada.", server.messages!![1].content)
                 assertEquals("sha256-aaaa", server.etag)
             }
@@ -335,7 +335,7 @@ class UseCasePromptClientTest {
     }
 
     @Test
-    fun `prompt prompt errors map onto the sdk's own exceptions`() {
+    fun `prompt render errors map onto the sdk's own exceptions`() {
         val body = AtomicReference<HttpResponse>()
         val transport = StubTransport { request ->
             if (request.url.contains("/prompts/") &&
@@ -355,19 +355,19 @@ class UseCasePromptClientTest {
                        "details":{"key":"nope"}}}""",
                 ),
             )
-            val unknownUseCase = assertFailsWith<UnknownUseCaseException> { prompton.promptOnServerBlocking("nope") }
-            assertEquals("nope", unknownUseCase.useCase)
+            val unknownPrompt = assertFailsWith<UnknownPromptException> { prompton.promptOnServerBlocking("nope") }
+            assertEquals("nope", unknownPrompt.promptKey)
 
             body.set(
                 HttpResponse(
                     404,
                     emptyMap(),
                     """{"error":{"code":"not_found","message":"unknown prompt",
-                       "details":{"reason":"unknown_use_case"}}}""",
+                       "details":{"reason":"unknown_prompt"}}}""",
                 ),
             )
-            val reasonOnly = assertFailsWith<UnknownUseCaseException> { prompton.promptOnServerBlocking("missing") }
-            assertEquals("missing", reasonOnly.useCase)
+            val reasonOnly = assertFailsWith<UnknownPromptException> { prompton.promptOnServerBlocking("missing") }
+            assertEquals("missing", reasonOnly.promptKey)
 
             body.set(
                 HttpResponse(
@@ -377,34 +377,19 @@ class UseCasePromptClientTest {
                        "details":{"reason":"unresolved"}}}""",
                 ),
             )
-            assertFailsWith<UnresolvedUseCaseException> { prompton.promptOnServerBlocking("draft") }
+            assertFailsWith<UnresolvedPromptException> { prompton.promptOnServerBlocking("draft") }
 
             body.set(
                 HttpResponse(
-                    404,
+                    400,
                     emptyMap(),
-                    """{"error":{"code":"not_found","message":"no prompt named fr",
-                       "details":{"reason":"unknown_template","key":"greeting","template":"fr",
-                       "template_names":["default","ko"]}}}""",
+                    """{"error":{"code":"invalid_request","message":"template overrides are not enabled"}}""",
                 ),
             )
-            val unknownPrompt =
-                assertFailsWith<UnknownPromptException> { prompton.promptOnServerBlocking("greeting", "fr") }
-            assertEquals("greeting", unknownPrompt.useCase)
-            assertEquals(listOf("default", "ko"), unknownPrompt.promptNames)
-
-            body.set(
-                HttpResponse(
-                    404,
-                    emptyMap(),
-                    """{"error":{"code":"not_found","message":"no prompt named fr",
-                       "details":{"reason":"unknown_template","template":"fr",
-                       "template_names":["default","ko"]}}}""",
-                ),
-            )
-            val fallbackUnknownPrompt =
-                assertFailsWith<UnknownPromptException> { prompton.promptOnServerBlocking("path-key", "fr") }
-            assertEquals("path-key", fallbackUnknownPrompt.useCase)
+            val nonDefaultTemplate =
+                assertFailsWith<PromptOnApiException> { prompton.promptOnServerBlocking("greeting", "fr") }
+            assertEquals(400, nonDefaultTemplate.status)
+            assertEquals("invalid_request", nonDefaultTemplate.code)
 
             body.set(
                 HttpResponse(

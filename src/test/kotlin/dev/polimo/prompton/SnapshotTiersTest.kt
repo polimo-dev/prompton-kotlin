@@ -50,11 +50,11 @@ class SnapshotTiersTest {
                         "etag" to SnapshotFixtures.PRODUCTION_ETAG,
                         "last-modified" to "Fri, 04 Sep 2026 00:21:48 GMT",
                     ),
-                    SnapshotFixtures.useCaseDocument(),
+                    SnapshotFixtures.promptDocument(),
                 )
             }
         PromptOn(config(transport, diskCache = diskCache), FakeClock()).use { prompton ->
-            assertEquals("openai/gpt-4o-mini", prompton.useCase("greeting").model)
+            assertEquals("openai/gpt-4o-mini", prompton.prompt("greeting").model)
         }
 
         val listing = Files.list(tempDir).use { it.map { path -> path.fileName.toString() }.sorted().toList() }
@@ -73,25 +73,25 @@ class SnapshotTiersTest {
     @Test
     fun `with the server down the disk cache still resolves`() {
         val diskCache = tempDir.resolve("snapshot.json")
-        Files.writeString(diskCache, SnapshotFixtures.useCaseDocument())
+        Files.writeString(diskCache, SnapshotFixtures.promptDocument())
 
         PromptOn(config(downTransport, diskCache = diskCache), FakeClock()).use { prompton ->
-            val useCase = prompton.useCase("greeting")
-            assertEquals(UseCaseSource.DISK, useCase.source)
-            assertEquals("openai/gpt-4o-mini", useCase.model)
-            assertEquals("Say hello to Ada.", useCase.messages(mapOf("name" to "Ada"))[1].content)
+            val prompt = prompton.prompt("greeting")
+            assertEquals(PromptSource.DISK, prompt.source)
+            assertEquals("openai/gpt-4o-mini", prompt.model)
+            assertEquals("Say hello to Ada.", prompt.messages(mapOf("name" to "Ada"))[1].content)
         }
     }
 
     @Test
     fun `with no disk cache the bundle resolves`() {
         val bundle = tempDir.resolve("prompts.production.json")
-        Files.writeString(bundle, SnapshotFixtures.useCaseDocument())
+        Files.writeString(bundle, SnapshotFixtures.promptDocument())
 
         PromptOn(config(downTransport, bundle = bundle), FakeClock()).use { prompton ->
-            val useCase = prompton.useCase("greeting")
-            assertEquals(UseCaseSource.BUNDLE, useCase.source)
-            assertEquals("openai/gpt-4o-mini", useCase.model)
+            val prompt = prompton.prompt("greeting")
+            assertEquals(PromptSource.BUNDLE, prompt.source)
+            assertEquals("openai/gpt-4o-mini", prompt.model)
         }
     }
 
@@ -99,13 +99,13 @@ class SnapshotTiersTest {
     fun `the disk cache is preferred over the bundle`() {
         val diskCache = tempDir.resolve("snapshot.json")
         val bundle = tempDir.resolve("bundle.json")
-        Files.writeString(diskCache, SnapshotFixtures.useCaseDocument(temperature = 0.7))
-        Files.writeString(bundle, SnapshotFixtures.useCaseDocument(temperature = 0.1))
+        Files.writeString(diskCache, SnapshotFixtures.promptDocument(temperature = 0.7))
+        Files.writeString(bundle, SnapshotFixtures.promptDocument(temperature = 0.1))
 
         PromptOn(config(downTransport, diskCache = diskCache, bundle = bundle), FakeClock()).use { prompton ->
-            val useCase = prompton.useCase("greeting")
-            assertEquals(UseCaseSource.DISK, useCase.source)
-            assertEquals(0.7, useCase.params["temperature"])
+            val prompt = prompton.prompt("greeting")
+            assertEquals(PromptSource.DISK, prompt.source)
+            assertEquals(0.7, prompt.params["temperature"])
         }
     }
 
@@ -114,30 +114,30 @@ class SnapshotTiersTest {
         val diskCache = tempDir.resolve("snapshot.json")
         val bundle = tempDir.resolve("bundle.json")
         Files.writeString(diskCache, "{\"schema_version\": 3, \"use_ca")
-        Files.writeString(bundle, SnapshotFixtures.useCaseDocument())
+        Files.writeString(bundle, SnapshotFixtures.promptDocument())
 
         PromptOn(config(downTransport, diskCache = diskCache, bundle = bundle), FakeClock()).use { prompton ->
-            assertEquals(UseCaseSource.BUNDLE, prompton.useCase("greeting").source)
+            assertEquals(PromptSource.BUNDLE, prompton.prompt("greeting").source)
         }
     }
 
     @Test
     fun `a snapshot for another environment is never used`() {
         val bundle = tempDir.resolve("bundle.json")
-        Files.writeString(bundle, SnapshotFixtures.useCaseDocument(environment = "staging"))
+        Files.writeString(bundle, SnapshotFixtures.promptDocument(environment = "staging"))
 
         PromptOn(config(downTransport, bundle = bundle), FakeClock()).use { prompton ->
-            assertFailsWith<UseCaseDocumentUnavailableException> { prompton.useCase("greeting") }
+            assertFailsWith<PromptDocumentUnavailableException> { prompton.prompt("greeting") }
         }
     }
 
     @Test
     fun `a snapshot for another project is never used`() {
         val bundle = tempDir.resolve("bundle.json")
-        Files.writeString(bundle, SnapshotFixtures.useCaseDocument(project = "someone-else"))
+        Files.writeString(bundle, SnapshotFixtures.promptDocument(project = "someone-else"))
 
         PromptOn(config(downTransport, bundle = bundle), FakeClock()).use { prompton ->
-            assertFailsWith<UseCaseDocumentUnavailableException> { prompton.useCase("greeting") }
+            assertFailsWith<PromptDocumentUnavailableException> { prompton.prompt("greeting") }
         }
     }
 
@@ -146,40 +146,40 @@ class SnapshotTiersTest {
         val bundle = tempDir.resolve("bundle.json")
         Files.writeString(
             bundle,
-            SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 1", "\"schema_version\": 3"),
+            SnapshotFixtures.promptDocument().replace("\"schema_version\": 1", "\"schema_version\": 3"),
         )
 
         PromptOn(config(downTransport, bundle = bundle), FakeClock()).use { prompton ->
-            assertFailsWith<UseCaseDocumentUnavailableException> { prompton.useCase("greeting") }
+            assertFailsWith<PromptDocumentUnavailableException> { prompton.prompt("greeting") }
         }
         assertFailsWith<UnsupportedSchemaVersionException> {
-            UseCaseDocument.parse(
-                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 1", "\"schema_version\": 3"),
+            PromptDocument.parse(
+                SnapshotFixtures.promptDocument().replace("\"schema_version\": 1", "\"schema_version\": 3"),
             )
         }
         assertFailsWith<UnsupportedSchemaVersionException> {
-            UseCaseDocument.parse(
-                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 1", "\"schema_version\": 10"),
+            PromptDocument.parse(
+                SnapshotFixtures.promptDocument().replace("\"schema_version\": 1", "\"schema_version\": 10"),
             )
         }
         assertFailsWith<PromptOnException> {
-            UseCaseDocument.parse(
-                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 1", "\"version\": 1"),
+            PromptDocument.parse(
+                SnapshotFixtures.promptDocument().replace("\"schema_version\": 1", "\"version\": 1"),
             )
         }
         assertFailsWith<PromptOnException> {
-            UseCaseDocument.parse(
-                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 1,\n", ""),
+            PromptDocument.parse(
+                SnapshotFixtures.promptDocument().replace("\"schema_version\": 1,\n", ""),
             )
         }
         assertFailsWith<PromptOnException> {
-            UseCaseDocument.parse(
-                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 1", "\"schema_version\": \"1\""),
+            PromptDocument.parse(
+                SnapshotFixtures.promptDocument().replace("\"schema_version\": 1", "\"schema_version\": \"1\""),
             )
         }
         assertFailsWith<PromptOnException> {
-            UseCaseDocument.parse(
-                SnapshotFixtures.useCaseDocument().replace("\"schema_version\": 1", "\"schema_version\": 1.0"),
+            PromptDocument.parse(
+                SnapshotFixtures.promptDocument().replace("\"schema_version\": 1", "\"schema_version\": 1.0"),
             )
         }
     }
@@ -188,8 +188,8 @@ class SnapshotTiersTest {
     fun `deployment revision must be a string`() {
         val error =
             assertFailsWith<PromptOnException> {
-                UseCaseDocument.parse(
-                    SnapshotFixtures.useCaseDocument().replace(
+                PromptDocument.parse(
+                    SnapshotFixtures.promptDocument().replace(
                         "\"revision\": \"v2026.09.30-3\"",
                         "\"revision\": 3",
                     ),
@@ -206,7 +206,7 @@ class SnapshotTiersTest {
                 repeat(60) { index ->
                     dev.polimo.prompton.internal.SnapshotFiles.write(
                         diskCache,
-                        SnapshotFixtures.useCaseDocument(temperature = if (index % 2 == 0) 0.1 else 0.9),
+                        SnapshotFixtures.promptDocument(temperature = if (index % 2 == 0) 0.1 else 0.9),
                         mapOf("etag" to "\"sha256-$index\"", "environment" to "production", "project" to "fixture"),
                     )
                 }
@@ -217,7 +217,7 @@ class SnapshotTiersTest {
         while (writer.isAlive || reads < 20) {
             val entry =
                 dev.polimo.prompton.internal.SnapshotFiles
-                    .read(diskCache, UseCaseSource.DISK, "production", "fixture")
+                    .read(diskCache, PromptSource.DISK, "production", "fixture")
             if (entry != null) {
                 assertEquals("production", entry.document.environment)
                 reads += 1
@@ -231,16 +231,16 @@ class SnapshotTiersTest {
     @Test
     fun `offline mode never touches the network`() {
         val bundle = tempDir.resolve("bundle.json")
-        Files.writeString(bundle, SnapshotFixtures.useCaseDocument())
+        Files.writeString(bundle, SnapshotFixtures.promptDocument())
         val transport = StubTransport { error("offline mode must not make requests") }
 
         val config =
             config(transport, bundle = bundle).copy(mode = PromptOnMode.OFFLINE)
         PromptOn(config, FakeClock()).use { prompton ->
-            assertEquals(UseCaseSource.BUNDLE, prompton.useCase("greeting").source)
+            assertEquals(PromptSource.BUNDLE, prompton.prompt("greeting").source)
             prompton.log(
                 LogRecord(
-                    useCase = "greeting",
+                    promptKey = "greeting",
                     model = "openai/gpt-4o-mini",
                     status = LogStatus.OK,
                     startedAt = java.time.Instant.parse("2026-09-04T09:00:00Z"),
@@ -253,12 +253,12 @@ class SnapshotTiersTest {
     @Test
     fun `without an api key nothing is fetched and the disk tier still serves`() {
         val diskCache = tempDir.resolve("snapshot.json")
-        Files.writeString(diskCache, SnapshotFixtures.useCaseDocument())
+        Files.writeString(diskCache, SnapshotFixtures.promptDocument())
         val transport = StubTransport { error("no API key means no requests") }
 
         val config = config(transport, diskCache = diskCache).copy(apiKey = null)
         PromptOn(config, FakeClock()).use { prompton ->
-            assertEquals(UseCaseSource.DISK, prompton.useCase("greeting").source)
+            assertEquals(PromptSource.DISK, prompton.prompt("greeting").source)
             assertEquals(0, transport.requestCount())
         }
     }

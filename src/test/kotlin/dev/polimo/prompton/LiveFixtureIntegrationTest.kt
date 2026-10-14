@@ -66,18 +66,18 @@ class LiveFixtureIntegrationTest {
         val transport = transport()
         val clock = FakeClock(instant = Instant.now())
         PromptOn(config(transport), clock).use { prompton ->
-            prompton.useCase("greeting")
-            val info = prompton.useCaseDocumentInfo()
+            prompton.prompt("greeting")
+            val info = prompton.promptDocumentInfo()
             assertEquals("sdkfixture", info.project)
             assertEquals("production", info.environment)
-            assertEquals(UseCaseSource.REMOTE, info.source)
+            assertEquals(PromptSource.REMOTE, info.source)
             assertNotNull(info.etag)
             assertTrue(info.etag!!.contains("sha256-"), info.etag!!)
-            assertTrue(info.useCases >= 1, "expected at least the requested prompt, got ${info.useCases}")
+            assertTrue(info.prompts >= 1, "expected at least the requested prompt, got ${info.prompts}")
 
             val before = transport.statuses("/prompts/greeting").size
             clock.advanceMillis(11_000)
-            prompton.useCase("greeting")
+            prompton.prompt("greeting")
             await("the revalidation") { transport.statuses("/prompts/greeting").size > before }
             settle()
 
@@ -87,8 +87,8 @@ class LiveFixtureIntegrationTest {
                 statuses.drop(1).all { it == 304 },
                 "every revalidation of an unchanged prompt is a 304, got $statuses",
             )
-            assertEquals(info.etag, prompton.useCaseDocumentInfo().etag, "a 304 keeps the document it already had")
-            assertEquals(UseCaseSource.REMOTE, prompton.useCaseDocumentInfo().source)
+            assertEquals(info.etag, prompton.promptDocumentInfo().etag, "a 304 keeps the document it already had")
+            assertEquals(PromptSource.REMOTE, prompton.promptDocumentInfo().source)
 
             // The disk tier now holds the same document, so a second process starts warm.
             assertTrue(
@@ -99,35 +99,39 @@ class LiveFixtureIntegrationTest {
     }
 
     @Test
-    fun `local useCase matches the server for the default prompt`() {
-        assertMatchesServer("greeting", prompt = null, variables = mapOf("name" to "Ada"))
+    fun `local prompt matches the server for the default prompt`() {
+        assertMatchesServer("greeting", template = null, variables = mapOf("name" to "Ada"))
     }
 
     @Test
-    fun `local useCase matches the server for a named prompt`() {
-        assertMatchesServer("greeting", prompt = "ko", variables = mapOf("name" to "아다"))
+    fun `local prompt matches the server for a named prompt`() {
+        assertMatchesServer("greeting", template = "ko", variables = mapOf("name" to "아다"))
     }
 
     @Test
-    fun `local useCase matches the server for a text prompt`() {
-        assertMatchesServer("summarize", prompt = null, variables = mapOf("items" to listOf("alpha", "beta", "gamma")))
+    fun `local prompt matches the server for a text prompt`() {
+        assertMatchesServer(
+            "summarize",
+            template = null,
+            variables = mapOf("items" to listOf("alpha", "beta", "gamma")),
+        )
     }
 
     @Test
-    fun `local useCase matches the server for an embedding prompt`() {
+    fun `local prompt matches the server for an embedding prompt`() {
         val transport = transport()
         PromptOn(config(transport), FakeClock(instant = Instant.now())).use { prompton ->
-            val local = prompton.useCase("embed")
+            val local = prompton.prompt("embed")
             val server = prompton.promptOnServerBlocking("embed")
 
-            assertEquals(UseCaseKind.EMBEDDING, local.kind)
+            assertEquals(PromptKind.EMBEDDING, local.kind)
             assertEquals(server.model, local.model)
             assertEquals(server.modelId, local.modelId)
             assertEquals(server.provider, local.provider)
-            assertNull(local.prompt)
-            assertNull(server.prompt)
-            assertEquals(emptyList(), local.promptNames)
-            assertEquals(emptyList(), server.promptNames)
+            assertNull(local.template)
+            assertNull(server.template)
+            assertEquals(emptyList(), local.templateNames)
+            assertEquals(emptyList(), server.templateNames)
             assertNull(server.messages)
             assertNull(server.text)
         }
@@ -137,11 +141,11 @@ class LiveFixtureIntegrationTest {
     fun `staging pins something else than production`() {
         val transport = transport()
         PromptOn(config(transport, environment = "staging"), FakeClock(instant = Instant.now())).use { prompton ->
-            val local = prompton.useCase("greeting")
-            assertEquals("staging", prompton.useCaseDocumentInfo().environment)
+            val local = prompton.prompt("greeting")
+            assertEquals("staging", prompton.promptDocumentInfo().environment)
             val server = prompton.promptOnServerBlocking("greeting", environment = "staging")
             assertEquals(server.params, local.params)
-            assertEquals(server.promptNames, local.promptNames)
+            assertEquals(server.templateNames, local.templateNames)
             assertNotEquals(
                 prompton.promptOnServerBlocking("greeting", environment = "production").deploymentId,
                 server.deploymentId,
@@ -154,22 +158,22 @@ class LiveFixtureIntegrationTest {
     fun `the error cases answer the way the contract says`() {
         val transport = transport()
         PromptOn(config(transport), FakeClock(instant = Instant.now())).use { prompton ->
-            prompton.useCase("greeting")
+            prompton.prompt("greeting")
 
-            assertFailsWith<UseCaseDocumentUnavailableException> { prompton.useCase("does_not_exist") }
-            val serverUnknownUseCase =
-                assertFailsWith<UnknownUseCaseException> { prompton.promptOnServerBlocking("does_not_exist") }
-            assertEquals("does_not_exist", serverUnknownUseCase.useCase)
+            assertFailsWith<PromptDocumentUnavailableException> { prompton.prompt("does_not_exist") }
+            val serverUnknownPrompt =
+                assertFailsWith<UnknownPromptException> { prompton.promptOnServerBlocking("does_not_exist") }
+            assertEquals("does_not_exist", serverUnknownPrompt.promptKey)
 
             val localUnknownPrompt =
-                assertFailsWith<UnknownPromptException> { prompton.useCase("greeting", prompt = "fr") }
-            val serverUnknownPrompt =
-                assertFailsWith<UnknownPromptException> { prompton.promptOnServerBlocking("greeting", "fr") }
-            assertEquals(listOf("default", "ko"), localUnknownPrompt.promptNames)
-            assertEquals(localUnknownPrompt.promptNames, serverUnknownPrompt.promptNames)
+                assertFailsWith<UnknownTemplateException> { prompton.prompt("greeting", template = "fr") }
+            val serverUnknownTemplate =
+                assertFailsWith<UnknownTemplateException> { prompton.promptOnServerBlocking("greeting", "fr") }
+            assertEquals(listOf("default", "ko"), localUnknownPrompt.templateNames)
+            assertEquals(localUnknownPrompt.templateNames, serverUnknownTemplate.templateNames)
 
             val localMissing =
-                assertFailsWith<MissingVariableException> { prompton.useCase("greeting").messages(emptyMap()) }
+                assertFailsWith<MissingVariableException> { prompton.prompt("greeting").messages(emptyMap()) }
             val serverMissing =
                 assertFailsWith<MissingVariableException> {
                     prompton.promptOnServerBlocking("greeting", variables = emptyMap())
@@ -189,25 +193,25 @@ class LiveFixtureIntegrationTest {
     fun `a batch of monitoring logs is accepted and a resend is a duplicate`() {
         val transport = transport()
         PromptOn(config(transport), FakeClock(instant = Instant.now())).use { prompton ->
-            val useCase = prompton.useCase("greeting")
-            val messages = useCase.messages(mapOf("name" to "Ada"))
+            val prompt = prompton.prompt("greeting")
+            val messages = prompt.messages(mapOf("name" to "Ada"))
 
             val ids = listOf(UuidV7.generate(), UuidV7.generate())
             val records =
                 listOf(
                     LogRecord(
-                        useCase = useCase.key,
-                        model = useCase.model!!,
+                        promptKey = prompt.key,
+                        model = prompt.model!!,
                         status = LogStatus.OK,
                         startedAt = Instant.now(),
                         id = ids[0],
-                        kind = useCase.kind,
-                        deploymentRevision = useCase.deploymentRevision,
-                        prompt = useCase.prompt,
-                        promptVersionNumber = useCase.promptVersionNumber,
-                        source = useCase.source,
-                        provider = useCase.provider,
-                        params = useCase.params,
+                        kind = prompt.kind,
+                        deploymentRevision = prompt.deploymentRevision,
+                        template = prompt.template,
+                        promptVersionNumber = prompt.promptVersionNumber,
+                        source = prompt.source,
+                        provider = prompt.provider,
+                        params = prompt.params,
                         input = LogInput(variables = mapOf("name" to "Ada"), messages = messages),
                         output = LogOutput(content = "Hello, Ada!"),
                         finishReason = "stop",
@@ -217,12 +221,12 @@ class LiveFixtureIntegrationTest {
                         traceId = "prompton-kotlin-integration",
                     ),
                     LogRecord(
-                        useCase = useCase.key,
-                        model = useCase.model!!,
+                        promptKey = prompt.key,
+                        model = prompt.model!!,
                         status = LogStatus.ERROR,
                         startedAt = Instant.now(),
                         id = ids[1],
-                        kind = useCase.kind,
+                        kind = prompt.kind,
                         error = LogError(ErrorKind.RATE_LIMITED, 429, "rate limited by upstream provider"),
                         latencyMs = 1503,
                         traceId = "prompton-kotlin-integration",
@@ -247,11 +251,11 @@ class LiveFixtureIntegrationTest {
     fun `the wrapper logs a real round trip`() {
         val transport = transport()
         PromptOn(config(transport), FakeClock(instant = Instant.now())).use { prompton ->
-            val useCase = prompton.useCase("greeting")
-            val messages = useCase.messages(mapOf("name" to "Ada"))
+            val prompt = prompton.prompt("greeting")
+            val messages = prompt.messages(mapOf("name" to "Ada"))
 
             val answer =
-                useCase.trackBlocking(
+                prompt.trackBlocking(
                     TrackMeta(
                         variables = mapOf("name" to "Ada"),
                         inputMessages = messages,
@@ -270,14 +274,14 @@ class LiveFixtureIntegrationTest {
     }
 
     private fun assertMatchesServer(
-        useCase: String,
-        prompt: String?,
+        promptKey: String,
+        template: String?,
         variables: Map<String, Any?>,
     ) {
         val transport = transport()
         PromptOn(config(transport), FakeClock(instant = Instant.now())).use { prompton ->
-            val local = prompton.useCase(useCase, prompt)
-            val server = prompton.promptOnServerBlocking(useCase, prompt, variables = variables)
+            val local = prompton.prompt(promptKey, template)
+            val server = prompton.promptOnServerBlocking(promptKey, template, variables = variables)
 
             assertEquals(server.kind, local.kind, "kind")
             assertEquals(server.model, local.model, "model")
@@ -285,8 +289,8 @@ class LiveFixtureIntegrationTest {
             assertEquals(server.provider, local.provider, "provider")
             assertEquals(server.deploymentId, local.deploymentId, "deployment id")
             assertEquals(server.deploymentRevision, local.deploymentRevision, "deployment revision")
-            assertEquals(server.prompt, local.prompt, "template")
-            assertEquals(server.promptNames, local.promptNames, "template_names")
+            assertEquals(server.template, local.template, "template")
+            assertEquals(server.templateNames, local.templateNames, "template_names")
             assertEquals(server.promptVersionId, local.promptVersionId, "prompt version id")
             assertEquals(server.promptVersionNumber, local.promptVersionNumber, "prompt version number")
             assertEquals(server.params, local.params, "params")
@@ -296,8 +300,8 @@ class LiveFixtureIntegrationTest {
                 "provider options",
             )
 
-            val messages = if (local.kind == UseCaseKind.CHAT) local.messages(variables) else null
-            val text = if (local.kind == UseCaseKind.TEXT) local.text(variables) else null
+            val messages = if (local.kind == PromptKind.CHAT) local.messages(variables) else null
+            val text = if (local.kind == PromptKind.TEXT) local.text(variables) else null
             assertEquals(server.messages, messages, "rendered messages")
             assertEquals(server.text, text, "rendered text")
         }
