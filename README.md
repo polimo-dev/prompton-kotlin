@@ -32,7 +32,7 @@ includeBuild("../prompton-kotlin")
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.polimo:prompton-sdk:0.5.0")
+    implementation("dev.polimo:prompton-sdk:0.6.0")
 }
 ```
 
@@ -223,7 +223,7 @@ application errors are still logged.
 | `id` | UUIDv7, generated before the provider call; the idempotency key |
 | `prompt_key`, `model`, `status`, `started_at` | Required |
 | `kind` | `chat`, `text` or `embedding` |
-| `deployment_id`, `deployment_revision`, `template`, `prompt_version_id` | The pin that produced the call |
+| `deployment_revision`, `template`, `prompt_version_number` | The readable pin evidence that produced the call. Snapshot and response objects still expose internal ids such as `deploymentId`, `promptVersionId` and `modelId` |
 | `source` | `remote`, `disk`, `bundle` or `manual` — where the configuration came from |
 | `provider`, `model_used`, `upstream_provider` | Who actually served it |
 | `params` | The prompt params, with your per-call overrides layered on |

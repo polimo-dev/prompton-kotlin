@@ -94,6 +94,11 @@ class LogBufferTest {
             ) as JsonArray
         ).map { it as JsonObject }
 
+    private fun field(
+        record: JsonObject,
+        name: String,
+    ): String? = (record[name] as? JsonPrimitive)?.content
+
     private fun idsOf(request: HttpRequest): List<String> =
         batchOf(request).map { (it["id"] as JsonPrimitive).content }
 
@@ -124,7 +129,7 @@ class LogBufferTest {
             val sent = batchOf(transport.lastPost()).single()
             val sdk = sent["sdk"] as JsonObject
             assertEquals("prompton-kotlin", (sdk["name"] as JsonPrimitive).content)
-            assertEquals("0.5.0", (sdk["version"] as JsonPrimitive).content)
+            assertEquals(PromptOnConfig.SDK_VERSION, (sdk["version"] as JsonPrimitive).content)
             val id = (sent["id"] as JsonPrimitive).content
             assertEquals('7', id[14], "the version nibble of a UUIDv7 is 7: $id")
             assertNotNull(UuidV7.timestampMillis(id))
@@ -166,9 +171,9 @@ class LogBufferTest {
             assertEquals("2026-09-04T09:00:00Z", (event["observed_at"] as JsonPrimitive).content)
             val sdk = event["sdk"] as JsonObject
             assertEquals("prompton-kotlin", (sdk["name"] as JsonPrimitive).content)
-            assertEquals("0.5.0", (sdk["version"] as JsonPrimitive).content)
+            assertEquals(PromptOnConfig.SDK_VERSION, (sdk["version"] as JsonPrimitive).content)
             val metadataSdk = ((event["metadata"] as JsonObject)["sdk"] as JsonObject)
-            assertEquals("0.5.0", (metadataSdk["version"] as JsonPrimitive).content)
+            assertEquals(PromptOnConfig.SDK_VERSION, (metadataSdk["version"] as JsonPrimitive).content)
             val arguments = event["arguments"] as JsonObject
             assertEquals("mood", (arguments["query"] as JsonPrimitive).content)
         }
@@ -602,6 +607,50 @@ class LogBufferTest {
             val sent = batchOf(transport.lastPost()).single()
             assertFalse(sent.containsKey("input"), "the redact hook removed the input")
             assertFalse(transport.lastPost().body!!.contains("hunter2"))
+        }
+    }
+
+    @Test
+    fun `retired resource refs are stripped from the wire record after redaction`() {
+        val transport = transport { accepted(1) }
+        val options =
+            LogOptions(
+                flushInterval = 60.seconds,
+                flushSize = 1_000,
+                flushBytes = 100_000_000,
+                redact = { record ->
+                    JsonObject(
+                        record +
+                            mapOf(
+                                "deployment_id" to JsonPrimitive("0198f2a1-0000-7000-8000-00000000d001"),
+                                "prompt_version_id" to JsonPrimitive("0198f2a1-0000-7000-8000-00000000a001"),
+                                "model_id" to JsonPrimitive("0198f2a1-0000-7000-8000-00000000e001"),
+                            ),
+                    )
+                },
+            )
+        PromptOn(config(transport, options), FakeClock()).use { prompton ->
+            prompton.log(
+                mapOf(
+                    "prompt_key" to "greeting",
+                    "model" to "openai/gpt-4o-mini",
+                    "status" to "ok",
+                    "started_at" to startedAt.toString(),
+                    "deployment_id" to "0198f2a1-0000-7000-8000-00000000d001",
+                    "deployment_revision" to "v2026.09.30-3",
+                    "prompt_version_id" to "0198f2a1-0000-7000-8000-00000000a001",
+                    "prompt_version_number" to 1,
+                    "model_id" to "0198f2a1-0000-7000-8000-00000000e001",
+                ),
+            )
+            prompton.flushBlocking()
+
+            val sent = batchOf(transport.lastPost()).single()
+            assertEquals("v2026.09.30-3", field(sent, "deployment_revision"))
+            assertEquals("1", field(sent, "prompt_version_number"))
+            assertFalse(sent.containsKey("deployment_id"))
+            assertFalse(sent.containsKey("prompt_version_id"))
+            assertFalse(sent.containsKey("model_id"))
         }
     }
 

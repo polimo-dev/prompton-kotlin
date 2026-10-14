@@ -112,6 +112,7 @@ public class PromptOn internal constructor(
         const val FAILED_REQ_CLOSED = "failed to send request: %Req.TransportError{reason: :closed}"
         const val FAILED_LLM_REQ_CLOSED =
             "failed to call LLM: failed to send request: %Req.TransportError{reason: :closed}"
+        val RETIRED_LOG_RESOURCE_REFS = setOf("deployment_id", "prompt_version_id", "model_id")
     }
 
     @JvmOverloads
@@ -513,10 +514,9 @@ public class PromptOn internal constructor(
                 startedAt = startedAt,
                 id = id,
                 kind = useCase.kind,
-                deploymentId = useCase.deploymentId,
                 deploymentRevision = useCase.deploymentRevision,
                 prompt = useCase.prompt,
-                promptVersionId = useCase.promptVersionId,
+                promptVersionNumber = useCase.promptVersionNumber,
                 source = useCase.source,
                 provider = useCase.provider,
                 modelUsed = result?.modelUsed,
@@ -582,7 +582,7 @@ public class PromptOn internal constructor(
             )
         val prepared =
             try {
-                Payload.apply(record, effectivePolicy, options)
+                stripRetiredResourceRefs(Payload.apply(record, effectivePolicy, options))
             } catch (e: RuntimeException) {
                 PtnLog.warn("[PromptOn] dropping a monitoring log the SDK could not prepare", e)
                 return
@@ -605,6 +605,9 @@ public class PromptOn internal constructor(
         }
         buffer?.enqueue(prepared, environment)
     }
+
+    private fun stripRetiredResourceRefs(record: JsonObject): JsonObject =
+        JsonObject(record.filterKeys { it !in RETIRED_LOG_RESOURCE_REFS })
 
     private fun policyFor(useCase: String?): PayloadPolicy? {
         if (useCase == null) return null

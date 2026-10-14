@@ -2,7 +2,7 @@
 
 All notable changes to the PromptOn Kotlin SDK.
 
-## Unreleased
+## 0.6.0
 
 - Message slots are no longer expanded by the SDK. A prompt document containing a `type: "slot"`
   chat message now fails during rendering and applications should compose conversation history and
@@ -11,6 +11,10 @@ All notable changes to the PromptOn Kotlin SDK.
   ordinary variables such as `history` available as normal template variables.
 - Omit the exact closed Req transport retry noise from monitoring records and completion trace
   events while preserving all other transport, timeout and application errors.
+- Monitoring logs now send readable resource references: `deployment_revision`, `provider`, `model`
+  and `prompt_version_number`. `LogRecord` no longer has UUID resource properties for
+  `deployment_id`, `prompt_version_id` or `model_id`; prompt documents and response objects still
+  expose those internal ids for local resolution and debugging.
 
 
 ## 0.5.0

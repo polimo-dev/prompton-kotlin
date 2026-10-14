@@ -132,11 +132,9 @@ public data class LogRecord
         /** Filled with a fresh UUIDv7 when absent. It is the idempotency key. */
         val id: String? = null,
         val kind: UseCaseKind? = null,
-        val deploymentId: String? = null,
         val deploymentRevision: String? = null,
         val prompt: String? = null,
-        val promptVersionId: String? = null,
-        val modelId: String? = null,
+        val promptVersionNumber: Int? = null,
         val source: UseCaseSource? = null,
         val provider: String? = null,
         val modelUsed: String? = null,
@@ -170,11 +168,9 @@ public data class LogRecord
             fields["status"] = JsonPrimitive(status.wire)
             fields["started_at"] = JsonPrimitive(Iso8601.format(startedAt))
             put(fields, "kind", kind?.wire)
-            put(fields, "deployment_id", deploymentId)
             deploymentRevision?.let { fields["deployment_revision"] = JsonPrimitive(it) }
             put(fields, "template", prompt)
-            put(fields, "prompt_version_id", promptVersionId)
-            put(fields, "model_id", modelId)
+            promptVersionNumber?.let { fields["prompt_version_number"] = JsonPrimitive(it) }
             put(fields, "source", source?.wire)
             put(fields, "provider", provider)
             put(fields, "model_used", modelUsed)
