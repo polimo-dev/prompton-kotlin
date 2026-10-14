@@ -16,7 +16,7 @@ public class UnsupportedSchemaVersionException(
 /**
  * A decoded PromptOn prompt document: either a bundle or one demand-fetched prompt key.
  *
- * Decoding is lenient about additions to schema versions 4 through 8, and strict about the
+ * Decoding is lenient about additions to schema versions 4 through 9, and strict about the
  * schema itself.
  */
 public class UseCaseDocument internal constructor(
@@ -43,7 +43,7 @@ public class UseCaseDocument internal constructor(
     public fun toJson(): String = source
 
     public companion object {
-        public const val SCHEMA_VERSION: Int = 8
+        public const val SCHEMA_VERSION: Int = 9
 
         /** Decodes a PromptOn prompt document body. */
         public fun parse(json: String): UseCaseDocument = decode(Ptn.parseObject(json), json)
@@ -57,9 +57,10 @@ public class UseCaseDocument internal constructor(
                 schemaVersionOf(root["schema_version"])
                     ?: throw PromptOnException("prompt document schema_version must be integer 4")
             if (schemaVersion !in 4..SCHEMA_VERSION) throw UnsupportedSchemaVersionException(schemaVersion)
+            val normalized = if (schemaVersion == 9) normalizeSingleDocument(root) else root
 
             val useCasesRaw =
-                Ptn.asObject(root["prompts"])
+                Ptn.asObject(normalized["prompts"])
                     ?: throw PromptOnException("prompt document prompts is required")
 
             val useCases =
@@ -69,14 +70,14 @@ public class UseCaseDocument internal constructor(
 
             val deployments =
                 Ptn
-                    .asObject(root["deployments"])
+                    .asObject(normalized["deployments"])
                     ?.entries
                     ?.associate { (key, value) -> key to decodeDeployment(key, Ptn.asObject(value), schemaVersion) }
                     .orEmpty()
 
             val promptVersions =
                 Ptn
-                    .asObject(root["prompt_versions"])
+                    .asObject(normalized["prompt_versions"])
                     ?.entries
                     ?.mapNotNull { (id, value) ->
                         Ptn.asObject(value)?.let { id to decodePromptVersion(id, it, schemaVersion) }
@@ -85,7 +86,7 @@ public class UseCaseDocument internal constructor(
 
             val models =
                 Ptn
-                    .asObject(root["models"])
+                    .asObject(normalized["models"])
                     ?.entries
                     ?.mapNotNull { (id, value) ->
                         Ptn.asObject(value)?.let { model ->
@@ -96,14 +97,65 @@ public class UseCaseDocument internal constructor(
 
             return UseCaseDocument(
                 schemaVersion = schemaVersion,
-                project = Ptn.asString(root["project"]),
-                environment = Ptn.asString(root["environment"]),
+                project = Ptn.asString(normalized["project"]),
+                environment = Ptn.asString(normalized["environment"]),
                 useCases = useCases,
                 deployments = deployments,
                 promptVersions = promptVersions,
                 models = models,
                 warnings = warnings,
                 source = source,
+            )
+        }
+
+        private fun normalizeSingleDocument(root: JsonObject): JsonObject {
+            if (
+                root.containsKey("prompts") ||
+                root.containsKey("deployments") ||
+                root.containsKey("prompt_versions") ||
+                root.containsKey("models")
+            ) {
+                throw PromptOnException("schema 9 single prompt document must use singular resources")
+            }
+
+            val prompt = Ptn.asObject(root["prompt"])
+                ?: throw PromptOnException("schema 9 single prompt document prompt is required")
+            val deployment = Ptn.asObject(root["deployment"])
+                ?: throw PromptOnException("schema 9 single prompt document deployment is required")
+            val version = Ptn.asObject(root["prompt_version"])
+                ?: throw PromptOnException("schema 9 single prompt document prompt version is required")
+            val model = Ptn.asObject(root["model"])
+                ?: throw PromptOnException("schema 9 single prompt document model is required")
+
+            val key = requiredString(prompt, "key", "prompt key")
+            val versionPrompt = requiredString(version, "prompt", "prompt version prompt")
+            if (versionPrompt != key) {
+                throw PromptOnException("prompt version prompt $versionPrompt must match prompt key $key")
+            }
+            val versionNumber = strictPositiveInt(version["number"], "prompt version number")
+            val deploymentVersion = strictPositiveInt(deployment["prompt_version"], "deployment prompt_version")
+            if (deploymentVersion != versionNumber) {
+                throw PromptOnException("deployment prompt_version must match prompt version number $versionNumber")
+            }
+
+            val deploymentProvider = requiredString(deployment, "provider", "deployment provider")
+            val deploymentModel = requiredString(deployment, "model", "deployment model")
+            val modelProvider = requiredString(model, "provider", "model provider")
+            val modelName = requiredString(model, "model", "model name")
+            if (deploymentProvider != modelProvider || deploymentModel != modelName) {
+                throw PromptOnException("deployment provider/model must match model provider/model")
+            }
+
+            return JsonObject(
+                mapOf(
+                    "schema_version" to root.getValue("schema_version"),
+                    "project" to (root["project"] ?: kotlinx.serialization.json.JsonNull),
+                    "environment" to (root["environment"] ?: kotlinx.serialization.json.JsonNull),
+                    "prompts" to JsonObject(mapOf(key to prompt)),
+                    "deployments" to JsonObject(mapOf(key to deployment)),
+                    "prompt_versions" to JsonObject(mapOf("$key@$versionNumber" to version)),
+                    "models" to JsonObject(mapOf(readableModelKey(modelProvider, modelName)!! to model)),
+                ),
             )
         }
 

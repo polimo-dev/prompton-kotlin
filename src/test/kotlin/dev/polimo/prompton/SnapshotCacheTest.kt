@@ -198,6 +198,39 @@ class SnapshotCacheTest {
     }
 
     @Test
+    fun `schema 9 single prompt cache and export preserve original bytes`() {
+        val body = schemaNineSinglePrompt()
+        val cache = tempDir.resolve("snapshot.json")
+        val exported = tempDir.resolve("exported.json")
+        val transport =
+            StubTransport {
+                HttpResponse(
+                    200,
+                    mapOf("etag" to "\"single-v1\"", "last-modified" to "Fri, 04 Sep 2026 00:21:48 GMT"),
+                    body,
+                )
+            }
+
+        PromptOn(config(transport).copy(diskCacheEnabled = true, diskCachePath = cache), FakeClock()).use { prompton ->
+            assertEquals("anthropic/claude-sonnet-4", prompton.useCase("support_reply").model)
+            prompton.exportUseCaseDocument(exported)
+        }
+
+        val entries = Ptn.asObject(Ptn.parseObject(Files.readString(cache))["entries"])!!
+        val saved = Ptn.asObject(entries["support_reply"])!!
+        assertEquals(body, Ptn.asString(saved["body"]))
+        assertEquals(body, Files.readString(exported))
+
+        val failing = StubTransport { HttpResponse(503, emptyMap(), "") }
+        PromptOn(config(failing).copy(diskCacheEnabled = true, diskCachePath = cache), FakeClock()).use { prompton ->
+            assertEquals(
+                "Reply to pricing for pro.",
+                prompton.useCase("support_reply").messages(mapOf("question" to "pricing", "plan" to "pro"))[1].content,
+            )
+        }
+    }
+
+    @Test
     fun `cold failure without fallback is explicit and gated`() {
         val transport = StubTransport { HttpResponse(503, emptyMap(), "") }
         PromptOn(config(transport), FakeClock()).use { prompton ->
@@ -362,6 +395,25 @@ class SnapshotCacheTest {
                                                       "display_name": "GPT-4o mini",
                                                       "metadata": {}, "provider_options": {},
                                                       "capabilities": [], "status": "active"}}}
+        """.trimIndent()
+
+    private fun schemaNineSinglePrompt(): String =
+        """
+        {"schema_version":9,"project":"fixture","environment":"production",
+         "prompt":{"key":"support_reply","kind":"chat","input_schema":[],
+                   "default_params":{},"payload_policy":{"mode":"full","sample_rate":1.0,
+                   "max_bytes":262144}},
+         "deployment":{"revision":"v2026.10.14-1","provider":"openrouter",
+                       "model":"anthropic/claude-sonnet-4","prompt_version":1,
+                       "params":{},"provider_options":{"only":["Anthropic"]},
+                       "api":"chat_completions","request_path":"/api/v1/chat/completions"},
+         "prompt_version":{"prompt":"support_reply","number":1,"kind":"chat","engine":"liquid",
+                           "messages":[{"role":"system","content":"Cache raw bytes."},
+                                       {"role":"user","content":"Reply to {{ question }} for {{ plan }}."}],
+                           "text_template":null},
+         "model":{"provider":"openrouter","model":"anthropic/claude-sonnet-4",
+                  "display_name":"Claude Sonnet 4","metadata":{},
+                  "provider_options":{},"capabilities":["tools"],"status":"active"}}
         """.trimIndent()
 
     private fun runConcurrent(

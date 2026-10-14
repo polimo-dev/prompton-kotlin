@@ -205,13 +205,147 @@ class ReadableSchemaTest {
     }
 
     @Test
-    fun `schema 9 is still unsupported until the contract changes again`() {
-        val error =
-            assertFailsWith<UnsupportedSchemaVersionException> {
-                UseCaseDocument.parse(
-                    """{"schema_version": 9, "project": "p", "environment": "production", "prompts": {}}""",
-                )
-            }
-        assertTrue(error.message!!.contains("this SDK reads version 8"))
+    fun `schema 9 single prompt chat documents resolve from singular resources`() {
+        val document = UseCaseDocument.parse(schemaNineChat())
+        val useCase = Resolver.resolve(document, "support_reply")
+        val request = useCase.request(mapOf("question" to "pricing", "plan" to "pro"))
+
+        assertEquals(9, document.schemaVersion)
+        assertEquals("support_reply", useCase.key)
+        assertEquals("openrouter", useCase.provider)
+        assertEquals("anthropic/claude-sonnet-4", useCase.model)
+        assertEquals(1, useCase.promptVersionNumber)
+        assertNull(useCase.deploymentId)
+        assertNull(useCase.modelId)
+        assertNull(useCase.promptVersionId)
+        assertEquals("chat_completions", request.api)
+        assertEquals("/api/v1/chat/completions", request.path)
+        assertEquals("anthropic/claude-sonnet-4", request.body["model"])
+        assertTrue(request.body.containsKey("usage"))
+        assertEquals(
+            "Reply to pricing for pro.",
+            useCase.messages(mapOf("question" to "pricing", "plan" to "pro"))[1].content,
+        )
     }
+
+    @Test
+    fun `schema 9 single prompt Decision documents prepare Decision requests`() {
+        val document = UseCaseDocument.parse(schemaNineDecision())
+        val useCase = Resolver.resolve(document, "decision_triage")
+        val request =
+            useCase.request(
+                mapOf("ticket" to "T-1", "plan" to "team", "region" to "eu"),
+                PreparedRequestOptions(sessionId = "session-1", user = "user-1"),
+            )
+
+        assertEquals(UseCaseKind.DECISION, useCase.kind)
+        assertEquals("decisions", request.api)
+        assertEquals("/api/v1/systemone", request.path)
+        assertEquals("typesafe/jev-1.13", request.body["model"])
+        assertEquals(
+            mapOf(
+                "ticket" to "T-1",
+                "plan" to "team",
+                "region" to "eu",
+                "facts" to listOf(0L, false, null, mapOf("literal" to "kept")),
+            ),
+            request.body["state"],
+        )
+        assertEquals("session-1", request.body["session_id"])
+        assertEquals("user-1", request.body["user"])
+        assertTrue(!request.body.containsKey("messages"))
+        assertTrue(!request.body.containsKey("usage"))
+    }
+
+    @Test
+    fun `schema 9 rejects incomplete mixed or mismatched single prompt documents`() {
+        assertFailsWith<PromptOnException> {
+            UseCaseDocument.parse(
+                """{"schema_version": 9, "project": "p", "environment": "production", "prompts": {}}""",
+            )
+        }
+        assertFailsWith<PromptOnException> {
+            UseCaseDocument.parse(
+                """
+                {"schema_version": 9, "project": "p", "environment": "production",
+                 "prompt": {"key": "greeting", "kind": "chat"},
+                 "deployment": {"provider": "openrouter", "model": "m", "prompt_version": 2},
+                 "prompt_version": {"prompt": "other", "number": 2, "kind": "chat", "engine": "liquid",
+                                    "messages": [{"role": "user", "content": "Hi"}]},
+                 "model": {"provider": "openrouter", "model": "m"}}
+                """.trimIndent(),
+            )
+        }
+        assertFailsWith<PromptOnException> {
+            UseCaseDocument.parse(
+                """
+                {"schema_version": 9, "project": "p", "environment": "production",
+                 "prompt": {"key": "greeting", "kind": "chat"},
+                 "deployment": {"provider": "openrouter", "model": "m", "prompt_version": 3},
+                 "prompt_version": {"prompt": "greeting", "number": 2, "kind": "chat", "engine": "liquid",
+                                    "messages": [{"role": "user", "content": "Hi"}]},
+                 "model": {"provider": "openrouter", "model": "m"}}
+                """.trimIndent(),
+            )
+        }
+        assertFailsWith<PromptOnException> {
+            UseCaseDocument.parse(
+                """
+                {"schema_version": 9, "project": "p", "environment": "production",
+                 "prompt": {"key": "greeting", "kind": "chat"},
+                 "deployment": {"provider": "openrouter", "model": "m", "prompt_version": 2},
+                 "prompt_version": {"prompt": "greeting", "number": 2, "kind": "chat", "engine": "liquid",
+                                    "messages": [{"role": "user", "content": "Hi"}]},
+                 "model": {"provider": "other", "model": "m"}}
+                """.trimIndent(),
+            )
+        }
+    }
+
+    private fun schemaNineChat(): String =
+        """
+        {"schema_version":9,"project":"heydiary-10242","environment":"production",
+         "prompt":{"key":"support_reply","kind":"chat",
+                   "input_schema":[{"name":"plan","required":false,"type":"string"},
+                                   {"name":"question","required":false,"type":"string"}],
+                   "default_params":{},"payload_policy":{"mode":"full","sample_rate":1.0,
+                   "max_bytes":262144,"retention_days":30,"encrypt":true}},
+         "deployment":{"revision":"v2026.10.14-1","provider":"openrouter",
+                       "model":"anthropic/claude-sonnet-4","prompt_version":1,
+                       "params":{},"provider_options":{"only":["Anthropic"]},
+                       "api":"chat_completions","request_path":"/api/v1/chat/completions"},
+         "prompt_version":{"prompt":"support_reply","number":1,"kind":"chat","engine":"liquid",
+                           "messages":[{"role":"system","content":"Keep opaque 019916f4-12b0-7e6c-a1d3-8c9f2b4e6a57."},
+                                       {"role":"user","content":"Reply to {{ question }} for {{ plan }}."}],
+                           "decision":null,"text_template":null},
+         "model":{"provider":"openrouter","model":"anthropic/claude-sonnet-4",
+                  "display_name":"Claude Sonnet 4","metadata":{},
+                  "provider_options":{},"capabilities":["tools","streaming"],"status":"active"}}
+        """.trimIndent()
+
+    private fun schemaNineDecision(): String =
+        """
+        {"schema_version":9,"project":"heydiary-10242","environment":"production",
+         "prompt":{"key":"decision_triage","kind":"decision",
+                   "input_schema":[{"name":"plan","required":false,"type":"string"},
+                                   {"name":"region","required":false,"type":"string"},
+                                   {"name":"ticket","required":false,"type":"string"}],
+                   "default_params":{},"payload_policy":{"mode":"full","sample_rate":1.0,
+                   "max_bytes":262144,"retention_days":30,"encrypt":true}},
+         "deployment":{"revision":"v2026.10.14-1","provider":"openrouter",
+                       "model":"typesafe/jev-1.13","prompt_version":1,
+                       "params":{},"provider_options":{"only":["Anthropic"]},
+                       "api":"decisions","request_path":"/api/v1/systemone"},
+         "prompt_version":{"prompt":"decision_triage","number":1,"kind":"decision","engine":"liquid",
+                           "messages":[],"text_template":null,
+                           "decision":{"state":{"ticket":"{{ ticket }}","plan":"{{ plan }}",
+                                                "region":"{{ region }}",
+                                                "facts":[0,false,null,{"literal":"kept"}]},
+                                       "questions":{"eligible":{"type":"noul",
+                                         "instructions":"Is this eligible?",
+                                         "criteria":{"true":"Eligible","false":"Not eligible"}}}}},
+         "model":{"provider":"openrouter","model":"typesafe/jev-1.13",
+                  "display_name":"Jev","metadata":{},"provider_options":{},
+                  "capabilities":["decisions"],"status":"active"}}
+        """.trimIndent()
 }

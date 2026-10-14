@@ -24,10 +24,10 @@ useCase.track(meta) { … }  ──▶  monitoring log, sent in batches
 
 ## Install
 
-Check out the v0.7.0 GitHub source release next to your app, then include it as a Gradle build:
+Check out the v0.7.1 GitHub source release next to your app, then include it as a Gradle build:
 
 ```sh
-git clone --branch v0.7.0 --depth 1 https://github.com/polimo-dev/prompton-kotlin.git
+git clone --branch v0.7.1 --depth 1 https://github.com/polimo-dev/prompton-kotlin.git
 ```
 
 ```kotlin
@@ -38,7 +38,7 @@ includeBuild("../prompton-kotlin")
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.polimo:prompton-sdk:0.7.0")
+    implementation("dev.polimo:prompton-sdk:0.7.1")
 }
 ```
 
@@ -257,7 +257,7 @@ application errors are still logged.
 | `id` | UUIDv7, generated before the provider call; the idempotency key |
 | `prompt_key`, `model`, `status`, `started_at` | Required |
 | `kind` | `chat`, `decision`, `text` or `embedding` |
-| `deployment_revision`, `template`, `prompt_version_number` | The readable pin evidence that produced the call. In schema v8, deprecated id properties such as `deploymentId`, `promptVersionId` and `modelId` remain null |
+| `deployment_revision`, `template`, `prompt_version_number` | The readable pin evidence that produced the call. In readable schemas, deprecated id properties such as `deploymentId`, `promptVersionId` and `modelId` remain null |
 | `source` | `remote`, `disk`, `bundle` or `manual` — where the configuration came from |
 | `provider`, `model_used`, `upstream_provider` | Who actually served it |
 | `params` | The prompt params, with your per-call overrides layered on |

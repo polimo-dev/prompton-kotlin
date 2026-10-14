@@ -2,6 +2,14 @@
 
 All notable changes to the PromptOn Kotlin SDK.
 
+## 0.7.1
+
+- Read schema v9 single-prompt documents from `GET /prompts/{key}` with singular `prompt`,
+  `deployment`, `prompt_version` and `model` resources.
+- Keep schema v8 bulk documents unchanged while normalizing schema v9 only at the decode boundary.
+- Preserve the original schema v9 response bytes for ETag revalidation, disk cache entries and
+  `exportUseCaseDocument`.
+
 ## 0.7.0
 
 - Read schema v8 prompt documents whose public resource references are readable keys instead of
